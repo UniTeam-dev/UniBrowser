@@ -20,6 +20,15 @@ final class AppModel {
     var isTabMapVisible = false
     /// The ringed tab in the tab map; arrows move it, Space peeks at it, Return opens it.
     var mapSelection: UUID?
+    /// The evening cleanup sheet; nil when it is closed.
+    var cleanup: CleanupSession?
+
+    struct CleanupSession {
+        var queue: [UUID]
+        var index = 0
+        var remaining: [UUID] { Array(queue.dropFirst(index)) }
+        var current: UUID? { queue.indices.contains(index) ? queue[index] : nil }
+    }
     /// Index into `store.tabsByRecency` while Ctrl is held; nil when the switcher is closed.
     var switcherIndex: Int?
 
@@ -32,6 +41,69 @@ final class AppModel {
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords))
         installTabSwitcherMonitor()
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            while !Task.isCancelled {
+                self?.offerCleanupIfDue()
+                try? await Task.sleep(for: .seconds(300))
+            }
+        }
+    }
+
+    // MARK: - Evening cleanup
+
+    private static let lastOfferedKey = "cleanupLastOffered"
+    private static let snoozedUntilKey = "cleanupSnoozedUntil"
+
+    /// Once a day after 18:00, or when a "remind tomorrow" time has come, if there is anything stale.
+    func offerCleanupIfDue(now: Date = .now) {
+        guard cleanup == nil else { return }
+        let defaults = UserDefaults.standard
+        let calendar = Calendar.current
+        if let snoozedUntil = defaults.object(forKey: Self.snoozedUntilKey) as? Date {
+            guard now >= snoozedUntil else { return }
+        } else {
+            guard calendar.component(.hour, from: now) >= 18 else { return }
+            if let last = defaults.object(forKey: Self.lastOfferedKey) as? Date, calendar.isDate(last, inSameDayAs: now) { return }
+        }
+        let stale = store.staleLooseTabIDs(now: now)
+        guard !stale.isEmpty else { return }
+        defaults.set(now, forKey: Self.lastOfferedKey)
+        defaults.removeObject(forKey: Self.snoozedUntilKey)
+        cleanup = CleanupSession(queue: stale)
+    }
+
+    /// The "Вечерняя уборка" command: shows the sheet now, even if it is empty.
+    func startCleanup() {
+        paletteMode = nil
+        cleanup = CleanupSession(queue: store.staleLooseTabIDs())
+    }
+
+    func archiveCurrentCleanupTab() {
+        if let id = cleanup?.current { store.archiveTab(id) }
+        advanceCleanup()
+    }
+
+    func advanceCleanup() {
+        guard var session = cleanup else { return }
+        session.index += 1
+        // Skip tabs closed while the sheet was open.
+        while let id = session.current, store.tab(id) == nil { session.index += 1 }
+        cleanup = session.current == nil ? nil : session
+    }
+
+    func archiveAllCleanupTabs() {
+        cleanup?.remaining.forEach(store.archiveTab)
+        cleanup = nil
+    }
+
+    func remindCleanupTomorrow() {
+        let calendar = Calendar.current
+        if let tomorrow = calendar.date(byAdding: .day, value: 1, to: .now),
+           let tenAM = calendar.date(bySettingHour: 10, minute: 0, second: 0, of: tomorrow) {
+            UserDefaults.standard.set(tenAM, forKey: Self.snoozedUntilKey)
+        }
+        cleanup = nil
     }
 
     // MARK: - Tab map
@@ -157,6 +229,14 @@ final class AppModel {
             return nil
         case .keyDown where event.keyCode == 53 && peek != nil:
             closePeek()
+            return nil
+        case .keyDown where cleanup != nil && peek == nil:
+            switch event.keyCode {
+            case 53: cleanup = nil
+            case 123 where cleanup?.current != nil: archiveCurrentCleanupTab()
+            case 124 where cleanup?.current != nil: advanceCleanup()
+            default: return event
+            }
             return nil
         case .keyDown where isTabMapVisible && peek == nil:
             return handleTabMapKey(event)

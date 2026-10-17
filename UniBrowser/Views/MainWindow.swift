@@ -36,6 +36,11 @@ struct MainWindow: View {
             }
         }
         .overlay {
+            if let session = model.cleanup {
+                CleanupSheet(session: session)
+            }
+        }
+        .overlay {
             if let page = model.peek {
                 PeekView(page: page)
             }

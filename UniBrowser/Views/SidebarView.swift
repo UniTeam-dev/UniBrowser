@@ -187,6 +187,11 @@ struct PinnedGrid: View {
 }
 
 enum Plural {
+    /// "1 вкладка не открывалась", "5 вкладок не открывались".
+    static func verbPast(_ n: Int, singular: String, plural: String) -> String {
+        n % 10 == 1 && n % 100 != 11 ? singular : plural
+    }
+
     static func tabs(_ n: Int) -> String {
         let mod10 = n % 10, mod100 = n % 100
         if mod10 == 1 && mod100 != 11 { return "вкладка" }

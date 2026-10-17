@@ -35,7 +35,7 @@ struct CommandPalette: View {
     }
 
     private var sections: [Section] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         func matches(_ text: String?) -> Bool { q.isEmpty || (text?.lowercased().contains(q) ?? false) }
 
         let tabs = store.tabsByRecency.filter {
@@ -45,6 +45,7 @@ struct CommandPalette: View {
         let archived = q.isEmpty ? [] : store.archive.filter { matches($0.title) || matches($0.url?.absoluteString) }
         var commands: [Item] = [
             .command("Карта вкладок", shortcut: "⌘⇧M") { model.openTabMap() },
+            .command("Вечерняя уборка", shortcut: nil) { model.startCleanup() },
             .command("Новая группа", shortcut: "⌘⇧G") { store.newGroup(named: q.isEmpty ? "Новая группа" : query) },
             .command("Новое пространство", shortcut: nil) { store.newSpace(named: q.isEmpty ? "Пространство \(store.spaces.count + 1)" : query) },
         ]
@@ -125,8 +126,10 @@ struct CommandPalette: View {
                                 .padding(EdgeInsets(top: 10, leading: 10, bottom: 6, trailing: 10))
                             ForEach(section.items) { item in
                                 let index = flatItems.firstIndex { $0.id == item.id } ?? 0
-                                row(item, isSelected: index == selection)
-                                    .onTapGesture { activate(at: index) }
+                                Button { activate(at: index) } label: {
+                                    row(item, isSelected: index == selection)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }

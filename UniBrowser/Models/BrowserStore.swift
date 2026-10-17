@@ -277,6 +277,18 @@ final class BrowserStore {
         }
     }
 
+    // MARK: - Evening cleanup
+
+    static let staleInterval: TimeInterval = 12 * 60 * 60
+
+    /// Loose tabs, in every space, not opened for 12+ hours. Pinned tabs, tabs in groups
+    /// and the tab on screen are never offered.
+    func staleLooseTabIDs(now: Date = .now) -> [UUID] {
+        spaces.flatMap { space in space.looseTabIDs.filter { $0 != space.selectedTabID } }.filter { id in
+            tabs[id].map { now.timeIntervalSince($0.lastActivated) >= Self.staleInterval } ?? false
+        }
+    }
+
     // MARK: - Spaces
 
     func switchToSpace(_ spaceID: UUID) {
