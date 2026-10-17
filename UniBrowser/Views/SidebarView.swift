@@ -169,7 +169,7 @@ struct SpaceRail: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ForEach(store.spaces) { space in
+            ForEach(Array(store.spaces.enumerated()), id: \.element.id) { index, space in
                 let isActive = space.id == store.activeSpaceID
                 Button { store.switchToSpace(space.id) } label: {
                     SpaceIcon(space: space, size: 26)
@@ -181,6 +181,13 @@ struct SpaceRail: View {
                 .help(space.name)
                 .accessibilityLabel("Пространство \(space.name)")
                 .accessibilityAddTraits(isActive ? .isSelected : [])
+                // Drag a space onto another to take its place.
+                .draggable(space.id.uuidString) { SpaceIcon(space: space, size: 26) }
+                .dropDestination(for: String.self) { items, _ in
+                    guard let id = items.first.flatMap(UUID.init(uuidString:)) else { return false }
+                    withAnimation(.snappy) { store.moveSpace(id, to: index) }
+                    return true
+                }
                 .contextMenu {
                     Button("Переименовать") {
                         store.switchToSpace(space.id)
@@ -190,6 +197,11 @@ struct SpaceRail: View {
                     if space.imageData != nil {
                         Button("Убрать картинку") { store.setSpaceImage(space.id, nil) }
                     }
+                    Divider()
+                    Button("Переместить выше") { store.moveSpace(space.id, to: index - 1) }
+                        .disabled(index == 0)
+                    Button("Переместить ниже") { store.moveSpace(space.id, to: index + 1) }
+                        .disabled(index == store.spaces.count - 1)
                 }
             }
             Button { store.newSpace(named: "Пространство \(store.spaces.count + 1)") } label: {

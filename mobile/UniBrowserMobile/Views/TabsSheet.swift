@@ -112,6 +112,14 @@ struct TabsSheet: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Пространство \(space.name)")
         .accessibilityAddTraits(isActive ? .isSelected : [])
+        .contextMenu {
+            if let index = store.spaces.firstIndex(where: { $0.id == space.id }) {
+                Button("Переместить влево", systemImage: "arrow.left") { store.moveSpace(space.id, to: index - 1) }
+                    .disabled(index == 0)
+                Button("Переместить вправо", systemImage: "arrow.right") { store.moveSpace(space.id, to: index + 1) }
+                    .disabled(index == store.spaces.count - 1)
+            }
+        }
     }
 
     @ViewBuilder

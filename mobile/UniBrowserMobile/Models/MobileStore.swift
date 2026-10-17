@@ -203,6 +203,13 @@ final class MobileStore {
         switchToSpace(space.id)
     }
 
+    /// Puts the space at `index`, shifting the others; the order syncs to the paired device.
+    func moveSpace(_ spaceID: UUID, to index: Int) {
+        guard let from = spaces.firstIndex(where: { $0.id == spaceID }), from != index, spaces.indices.contains(index) else { return }
+        spaces.insert(spaces.remove(at: from), at: index)
+        scheduleSave()
+    }
+
     // MARK: - Helpers
 
     private func mutateActiveSpace(_ change: (inout Space) -> Void) {

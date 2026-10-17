@@ -328,6 +328,13 @@ final class BrowserStore {
         switchToSpace(space.id)
     }
 
+    /// Puts the space at `index`, shifting the others; the order syncs to the paired device.
+    func moveSpace(_ spaceID: UUID, to index: Int) {
+        guard let from = spaces.firstIndex(where: { $0.id == spaceID }), from != index, spaces.indices.contains(index) else { return }
+        spaces.insert(spaces.remove(at: from), at: index)
+        scheduleSave()
+    }
+
     func renameSpace(_ spaceID: UUID, to name: String) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let i = spaces.firstIndex(where: { $0.id == spaceID }) else { return }
