@@ -28,6 +28,10 @@ final class BrowserTab: Identifiable {
     var hasLoginForm = false
     /// Last page snapshot, for the tab map and evening cleanup.
     var thumbnail: NSImage?
+    /// Developer tools of the live page; nil while asleep, so sleeping closes the panel.
+    private(set) var devTools: DevToolsSession?
+    /// «Режим устройства» stays on with the panel closed.
+    let deviceMode = DeviceMode()
 
     @ObservationIgnored private(set) var webView: WKWebView?
     /// The web view's own superview. WebKit docks its inspector beside the web view in
@@ -59,7 +63,9 @@ final class BrowserTab: Identifiable {
         if let webView { return webView }
 
         let controller = TabWebController(tab: self, environment: environment)
-        let webView = WKWebView(frame: .zero, configuration: environment.makeConfiguration(for: controller))
+        let devTools = DevToolsSession()
+        let webView = WKWebView(frame: .zero, configuration: environment.makeConfiguration(for: controller, devTools: devTools))
+        devTools.webView = webView
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.navigationDelegate = controller
@@ -95,6 +101,7 @@ final class BrowserTab: Identifiable {
         hostView.addSubview(webView)
 
         self.controller = controller
+        self.devTools = devTools
         self.webView = webView
         self.hostView = hostView
         isAsleep = false
@@ -105,6 +112,8 @@ final class BrowserTab: Identifiable {
     /// Frees the web view. The tab keeps its URL and title and reloads on the next wake.
     func sleep() {
         observations.removeAll()
+        devTools?.close()
+        devTools = nil
         webView?.stopLoading()
         hostView?.removeFromSuperview()
         hostView = nil

@@ -56,12 +56,24 @@ struct BrowserCommands: Commands {
         }
 
         CommandMenu("Разработка") {
-            Button("Инструменты разработчика") { inspect(WebInspector.toggle) }
-                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF12FunctionKey)!)), modifiers: [])
-            Button("Консоль JavaScript") { inspect(WebInspector.showConsole) }
+            // F12 also toggles it; AppModel's key monitor handles that (one shortcut per item).
+            Button("Инструменты разработчика") { model.toggleDevTools() }
+                .keyboardShortcut("i", modifiers: [.command, .option])
+            Button("Консоль JavaScript") { model.store.selectedTab?.devTools?.open(.console) }
                 .keyboardShortcut("j", modifiers: [.command, .option])
-            Button("Выбрать элемент на странице") { inspect(WebInspector.pickElement) }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
+            Button("Выбрать элемент на странице") {
+                guard let devTools = model.store.selectedTab?.devTools else { return }
+                devTools.open(.elements)
+                devTools.elements.pick()
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+            // ponytail: no ⇧⌘M (spec) yet: «Карта вкладок» already uses it.
+            Button("Режим устройства") { model.store.selectedTab?.deviceMode.isOn.toggle() }
+            Button("Жёсткая перезагрузка") { model.store.selectedTab?.webView?.reloadFromOrigin() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+            Divider()
+            Button("Web Inspector") { inspect(WebInspector.toggle) }
+                .keyboardShortcut("u", modifiers: [.command, .option])
         }
 
         CommandGroup(after: .sidebar) {
