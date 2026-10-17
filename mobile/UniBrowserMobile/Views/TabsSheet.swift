@@ -20,13 +20,13 @@ struct TabsSheet: View {
                         .listRowBackground(Color.clear)
                 }
                 if store.spaces.count > 1 {
-                    Picker("Пространство", selection: Binding(get: { store.activeSpaceID }, set: { store.switchToSpace($0) })) {
-                        ForEach(store.spaces) { space in
-                            Text(space.name).tag(space.id)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(store.spaces) { spaceChip($0) }
                         }
                     }
-                    .pickerStyle(.segmented)
                     .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 }
 
                 let space = store.activeSpace
@@ -92,6 +92,26 @@ struct TabsSheet: View {
         guard let mac = relay.pairedMac else { return "Mac не подключён: вкладки только на телефоне" }
         if relay.isSyncing { return "Вкладки синхронизируются с «\(mac.name)»" }
         return "Нет связи с «\(mac.name)»: изменения уйдут на Mac при подключении"
+    }
+
+    private func spaceChip(_ space: Space) -> some View {
+        let isActive = space.id == store.activeSpaceID
+        return Button {
+            store.switchToSpace(space.id)
+        } label: {
+            HStack(spacing: 6) {
+                SpaceIcon(space: space, size: 22)
+                Text(space.name).lineLimit(1)
+            }
+            .padding(.leading, 5)
+            .padding(.trailing, 12)
+            .padding(.vertical, 5)
+            .background(isActive ? space.color.opacity(0.22) : Color(.secondarySystemBackground), in: Capsule())
+            .overlay(Capsule().strokeBorder(isActive ? space.color : .clear, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Пространство \(space.name)")
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     @ViewBuilder

@@ -284,7 +284,7 @@ final class MacRelay {
             lastSynced = .now
         case .passwords(let logins):
             passwords?.replaceFromMac(logins)
-        case .hello, .savePassword:
+        case .hello, .savePassword, .sessionKeepingImages:
             break
         }
     }

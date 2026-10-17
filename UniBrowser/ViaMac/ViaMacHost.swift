@@ -223,7 +223,7 @@ final class ViaMacHost {
         case .savePassword(let credential):
             try? await passwords?.save(Credential(host: credential.host, username: credential.username, password: credential.password))
             await sendPasswordsIfChanged()
-        case .hello, .passwords:
+        case .hello, .passwords, .sessionKeepingImages:
             break
         }
     }

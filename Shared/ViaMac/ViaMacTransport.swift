@@ -146,10 +146,17 @@ enum ControlChannel {
 }
 
 /// The `sync` stream: 4-byte big-endian length, then one JSON `SyncMessage`.
-/// Writes are serialized by the actor; one task reads with `next()`.
+/// Frames go out whole and in call order; one task reads with `next()`.
+/// Space pictures travel only when they change: a `session` whose pictures
+/// match the last ones sent goes as `sessionKeepingImages`, and the other end
+/// puts back the pictures it last received.
 actor SyncChannel {
     private let send: SendStream
     nonisolated let reader: StreamReader
+    /// The write in flight; the next frame waits for it so frames never interleave.
+    private var lastWrite: Task<Void, Error>?
+    private var sentImages: [UUID: Data]?
+    private var receivedImages: [UUID: Data] = [:]
 
     init(send: SendStream, reader: StreamReader) {
         self.send = send
@@ -165,19 +172,48 @@ actor SyncChannel {
     }
 
     func write(_ message: SyncMessage) async throws {
+        var message = message
+        switch message {
+        case .hello(let session, _, _):
+            sentImages = session.spaceImages
+        case .session(let session):
+            let images = session.spaceImages
+            if images == sentImages {
+                message = .sessionKeepingImages(session.withoutImages())
+            } else {
+                sentImages = images
+            }
+        default:
+            break
+        }
         let body = try JSONEncoder().encode(message)
         let length = UInt32(body.count)
         var frame = Data([UInt8(length >> 24), UInt8(length >> 16 & 0xFF), UInt8(length >> 8 & 0xFF), UInt8(length & 0xFF)])
         frame.append(body)
-        try await send.writeAll(buf: frame)
+        let previous = lastWrite
+        let write = Task { [send] in
+            _ = await previous?.result
+            try await send.writeAll(buf: frame)
+        }
+        lastWrite = write
+        try await write.value
     }
 
     /// The next message; throws once the stream ends.
-    nonisolated func next() async throws -> SyncMessage {
+    func next() async throws -> SyncMessage {
         let header = try await reader.read(4)
         let length = header.reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
         guard length <= ViaMacProtocol.maxSyncFrame else { throw ViaMacError.frameTooLarge }
-        return try JSONDecoder().decode(SyncMessage.self, from: try await reader.read(Int(length)))
+        let message = try JSONDecoder().decode(SyncMessage.self, from: try await reader.read(Int(length)))
+        switch message {
+        case .hello(let session, _, _), .session(let session):
+            receivedImages = session.spaceImages
+            return message
+        case .sessionKeepingImages(let session):
+            return .session(session.withImages(receivedImages))
+        default:
+            return message
+        }
     }
 
     func close() async {

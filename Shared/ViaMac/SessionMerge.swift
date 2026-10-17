@@ -72,6 +72,23 @@ extension SessionSnapshot {
         return result
     }
 
+    /// Each space's picture by space id; spaces without one are left out.
+    var spaceImages: [UUID: Data] {
+        Dictionary(spaces.compactMap { space in space.imageData.map { (space.id, $0) } }, uniquingKeysWith: { first, _ in first })
+    }
+
+    func withoutImages() -> SessionSnapshot {
+        var copy = self
+        for i in copy.spaces.indices { copy.spaces[i].imageData = nil }
+        return copy
+    }
+
+    func withImages(_ images: [UUID: Data]) -> SessionSnapshot {
+        var copy = self
+        for i in copy.spaces.indices { copy.spaces[i].imageData = images[copy.spaces[i].id] }
+        return copy
+    }
+
     /// Same tabs, places and titles; ignores who wrote it and when.
     func hasSameContent(as other: SessionSnapshot) -> Bool {
         func key(_ snapshot: SessionSnapshot) -> Data? {

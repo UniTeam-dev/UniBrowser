@@ -171,6 +171,9 @@ private struct BottomBar: View {
         VStack(spacing: 8) {
             Button(action: onAddress) {
                 HStack(spacing: 6) {
+                    if store.spaces.count > 1 || store.activeSpace.imageData != nil {
+                        SpaceIcon(space: store.activeSpace, size: 18)
+                    }
                     if mode == .viaMac {
                         Image(systemName: BrowsingMode.viaMac.systemImage)
                             .foregroundStyle(store.activeSpace.color)
@@ -245,9 +248,15 @@ private struct StartPage: View {
     var body: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: mode.systemImage)
-                .font(.system(size: 44))
-                .foregroundStyle(space.color)
+            SpaceIcon(space: space, size: 72)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: mode.systemImage)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(space.color)
+                        .padding(7)
+                        .background(.regularMaterial, in: Circle())
+                        .offset(x: 6, y: 6)
+                }
             Text(space.name).font(.title2.bold())
             Text(mode == .viaMac
                  ? "Вкладки вашего Mac. Рабочие сайты откроются через него."

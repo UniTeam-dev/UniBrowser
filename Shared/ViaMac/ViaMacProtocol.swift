@@ -136,6 +136,10 @@ enum SyncMessage: Codable, Sendable {
     case hello(session: SessionSnapshot, base: SessionSnapshot?, savedPasswords: [SyncedCredential])
     /// Either way: the sender's whole session after a change.
     case session(SessionSnapshot)
+    /// Like `session`, but without space pictures because none changed since
+    /// the last full frame on this stream. SyncChannel adds them back, so
+    /// receivers only ever see `session`.
+    case sessionKeepingImages(SessionSnapshot)
     /// Mac → phone: every login in the Mac's password store.
     case passwords([SyncedCredential])
     /// Phone → Mac: a login the user just saved on the phone.

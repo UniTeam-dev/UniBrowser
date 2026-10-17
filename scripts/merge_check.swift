@@ -81,6 +81,15 @@ enum MergeCheck {
         let f = SessionSnapshot.merged(oa, na, base: base)
         check("(f) archive is the union", f.archive?.map(\.id) == [a2.id, a1.id])
 
+        // (g) Pictures stripped from a live frame come back from the last full one.
+        var pictured = work; pictured.imageData = Data([1, 2, 3])
+        let withPicture = snapshot([pictured, macMain], [tab(m1, "m1"), tab(m2, "m2")], at: Date())
+        let stripped = withPicture.withoutImages()
+        check("(g) pictures strip and restore by space id",
+              stripped.spaces.allSatisfy { $0.imageData == nil }
+                && withPicture.spaceImages == [work.id: Data([1, 2, 3])]
+                && stripped.withImages(withPicture.spaceImages).spaces == withPicture.spaces)
+
         exit(failed ? 1 : 0)
     }
 }
