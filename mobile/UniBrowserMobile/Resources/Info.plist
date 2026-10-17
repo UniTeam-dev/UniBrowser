@@ -28,6 +28,12 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- A browser must open http:// sites (intranet ones too); without this WKWebView fails them with -1022. Web views only. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>UniBrowser подключается к вашему Mac в режиме «Через Mac».</string>
 	<!-- Only standard encryption (HTTPS, QUIC/TLS in iroh, CryptoKit): exempt from export filings. -->

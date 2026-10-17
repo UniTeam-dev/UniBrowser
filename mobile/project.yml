@@ -38,6 +38,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ilya.browser
+        # User-visible name of the .app, .ipa and the archive; the Swift module stays UniBrowserMobile.
+        PRODUCT_NAME: UniBrowser
+        PRODUCT_MODULE_NAME: UniBrowserMobile
         INFOPLIST_FILE: UniBrowserMobile/Resources/Info.plist
         # Ad-hoc подпись профилем "Ilya" (команда 7SJ59D8JGU). Для симулятора build.sh ставит CODE_SIGNING_ALLOWED=NO.
         CODE_SIGN_STYLE: Manual
