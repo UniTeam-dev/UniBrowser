@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- Cases for «Элементы» and «Изменения»: open http://127.0.0.1:8000/elements.html
+     (serve.sh). Same-origin and cross-origin stylesheets, :hover, grid/flex, shadow DOM,
+     listeners, ARIA, a mutating node, and iframes from both origins. -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>DevTools test: Elements</title>
+  <link rel="stylesheet" href="elements.css">
+  <!-- Cross-origin without CORS: its rules are listed as unavailable. -->
+  <link rel="stylesheet" id="foreign-css">
+  <script>document.getElementById('foreign-css').href = location.protocol + '//' + location.hostname + ':' + (+location.port + 1) + '/elements.css';</script>
+  <style>
+    .card { padding: 8px 12px; margin: 10px 0; border: 2px solid #2563c9; border-radius: 6px; }
+    .card .title { font-weight: 600; color: rgb(37, 99, 201); }
+    @media (min-width: 100px) { .card { background: #f4f8ff; } }
+  </style>
+</head>
+<body>
+  <h1 id="top">Элементы</h1>
+
+  <section class="card" id="styled" style="color: #333; letter-spacing: 0.5px">
+    <p class="title">Карточка со стилями</p>
+    <p>Наведите на кнопку: правило <code>:hover</code>. <a href="#top" id="link">Ссылка</a></p>
+    <button id="hoverme" class="primary">Кнопка с :hover</button>
+  </section>
+
+  <div class="grid" id="grid">
+    <div style="grid-area: head">head</div>
+    <div style="grid-area: side">side</div>
+    <div style="grid-area: main">main</div>
+    <div style="grid-area: foot">foot</div>
+  </div>
+
+  <div class="flex" id="flex">
+    <span>один</span><span>два</span><span>три</span>
+  </div>
+
+  <div id="open-host"></div>
+  <div id="closed-host"></div>
+
+  <form class="card" aria-labelledby="form-title">
+    <h2 id="form-title">Форма</h2>
+    <label for="name">Имя</label> <input id="name" placeholder="Иван" required>
+    <input type="checkbox" id="agree" aria-describedby="agree-help"> <label for="agree">Согласен</label>
+    <small id="agree-help">Нужно для отправки</small>
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='%232563c9'/%3E%3C/svg%3E" alt="Синий квадрат">
+    <div role="button" tabindex="0" aria-pressed="false">Кнопка на div</div>
+  </form>
+
+  <p>Счётчик (меняется каждые 2 с): <span id="counter">0</span></p>
+  <ul id="list"><li>первый</li><li>второй</li><li>третий</li></ul>
+
+  <p>Same-origin iframe:</p>
+  <iframe id="same" srcdoc="<p id='inner'>Внутри srcdoc</p><button>в srcdoc</button>" width="300" height="60"></iframe>
+  <p>Cross-origin iframe (port + 1):</p>
+  <iframe id="cross" width="600" height="120"></iframe>
+
+  <script>
+    document.getElementById('cross').src = location.protocol + '//' + location.hostname + ':' + (+location.port + 1) + '/frame.html';
+    const button = document.getElementById('hoverme');
+    button.addEventListener('click', function onButtonClick(event) { console.log('button click', event.type); });
+    button.addEventListener('pointerdown', () => {}, { passive: true });
+    document.body.addEventListener('keydown', (e) => e.key, true);
+    button.onmouseenter = function () {};
+    const open = document.getElementById('open-host').attachShadow({ mode: 'open' });
+    open.innerHTML = '<style>b { color: purple }</style><b>Открытый shadow root</b>';
+    const closed = document.getElementById('closed-host').attachShadow({ mode: 'closed' });
+    closed.innerHTML = '<i>Закрытый shadow root</i>';
+    let n = 0;
+    setInterval(() => { document.getElementById('counter').textContent = String(++n); }, 2000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+/* Same-origin stylesheet for elements.html (from 8001 it is the cross-origin one). */
+body {
+  font-family: -apple-system, system-ui, sans-serif;
+  margin: 16px;
+}
+
+button.primary {
+  background-color: #e8f0fe;
+  border: 1px solid #2563c9;
+  padding: 4px 10px;
+}
+
+button.primary:hover {
+  background-color: #ffcc00;
+  color: hsl(0, 70%, 40%);
+}
+
+a:focus-visible, a:active {
+  outline: 2px dashed red;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  grid-template-rows: 30px 60px 30px;
+  grid-template-areas: "head head" "side main" "foot foot";
+  gap: 6px 10px;
+  width: 420px;
+  margin: 12px 0;
+}
+
+.grid > div {
+  background: rgba(37, 99, 201, 0.15);
+}
+
+.flex {
+  display: flex;
+  gap: 16px;
+  padding: 6px;
+  border: 1px solid #ccc;
+  width: max-content;
+}
