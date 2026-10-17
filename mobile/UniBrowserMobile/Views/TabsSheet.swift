@@ -9,6 +9,8 @@ struct TabsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var newGroupName = ""
     @State private var isNamingGroup = false
+    @State private var renamingTabID: UUID?
+    @State private var tabName = ""
 
     var body: some View {
         NavigationStack {
@@ -34,13 +36,15 @@ struct TabsSheet: View {
                 if !space.pinnedTabIDs.isEmpty {
                     Section("Закреплённые") {
                         ForEach(space.pinnedTabIDs, id: \.self) { row($0) }
+                            .onMove { store.reorder(group: nil, pinned: true, from: $0, to: $1) }
                     }
                 }
 
                 ForEach(space.groups) { group in
                     Section {
                         if group.isExpanded {
-                            ForEach(group.tabIDs, id: \.self) { row($0) }
+                            ForEach(store.orderedTabIDs(group), id: \.self) { row($0) }
+                                .onMove { store.reorder(group: group.id, from: $0, to: $1) }
                         }
                     } header: {
                         Button {
@@ -59,6 +63,7 @@ struct TabsSheet: View {
 
                 Section("Сегодня") {
                     ForEach(space.looseTabIDs, id: \.self) { row($0) }
+                        .onMove { store.reorder(group: nil, from: $0, to: $1) }
                 }
             }
             .navigationTitle(store.activeSpace.name)
@@ -84,6 +89,11 @@ struct TabsSheet: View {
                     newGroupName = ""
                 }
                 Button("Отмена", role: .cancel) { newGroupName = "" }
+            }
+            .alert("Название вкладки", isPresented: Binding(get: { renamingTabID != nil }, set: { if !$0 { renamingTabID = nil } })) {
+                TextField("Пусто — название страницы", text: $tabName)
+                Button("Сохранить") { if let id = renamingTabID { store.renameTab(id, to: tabName) } }
+                Button("Отмена", role: .cancel) {}
             }
         }
     }
@@ -125,28 +135,43 @@ struct TabsSheet: View {
     @ViewBuilder
     private func row(_ tabID: UUID) -> some View {
         if let tab = store.tab(tabID) {
-            Button {
-                store.select(tabID)
-                dismiss()
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(tab.displayTitle).lineLimit(1)
-                    if let host = tab.url?.host() {
-                        Text(host).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button {
+                    store.select(tabID)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tab.displayTitle).lineLimit(1)
+                        if let host = tab.url?.host() {
+                            Text(host).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                if tab.isAwayFromPin {
+                    Button("📌") { store.returnToPin(tabID) }
+                        .accessibilityLabel("Вернуть на закреплённую страницу")
+                } else if tab.pinnedURL != nil && store.isInGroup(tabID) {
+                    Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
+                        .accessibilityLabel("Закреплена в папке")
+                }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
+            .foregroundStyle(.primary)
             .listRowBackground(store.activeSpace.selectedTabID == tabID ? store.activeSpace.color.opacity(0.15) : nil)
             .swipeActions {
                 Button("Закрыть", systemImage: "xmark", role: .destructive) { store.closeTab(tabID) }
             }
             .contextMenu {
-                Button(
-                    store.activeSpace.pinnedTabIDs.contains(tabID) ? "Открепить" : "Закрепить",
-                    systemImage: "pin"
-                ) { store.togglePin(tabID) }
+                Button(tab.pinnedURL == nil ? "Закрепить" : "Открепить", systemImage: "pin") { store.togglePin(tabID) }
+                if tab.isAwayFromPin {
+                    Button("Вернуть на закреплённую страницу", systemImage: "pin") { store.returnToPin(tabID) }
+                }
+                Button("Переименовать", systemImage: "pencil") {
+                    tabName = tab.customTitle ?? ""
+                    renamingTabID = tabID
+                }
                 Menu("В группу", systemImage: "folder") {
                     ForEach(store.activeSpace.groups) { group in
                         Button(group.name) { store.move(tabID, toGroup: group.id) }

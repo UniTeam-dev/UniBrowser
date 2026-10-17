@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The vertical tab panel from the approved design: toolbar, address button,
-/// pinned tiles, the space rail beside the space's folder groups and today's tabs.
+/// the space rail beside the space's folder groups and today's tabs.
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(BrowserStore.self) private var store
@@ -16,9 +16,6 @@ struct SidebarView: View {
             toolbar
             addressButton
             ExtensionBar(manager: store.environment.extensions)
-            if !space.pinnedTabIDs.isEmpty {
-                PinnedGrid(tabIDs: space.pinnedTabIDs)
-            }
             HStack(alignment: .top, spacing: 8) {
                 SpaceRail(rename: startRenamingSpace)
                 VStack(alignment: .leading, spacing: 12) {
@@ -37,6 +34,13 @@ struct SidebarView: View {
     private func tabList(_ space: Space) -> some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
+                    if !space.pinnedTabIDs.isEmpty {
+                        SectionDivider(title: "Закреплённые")
+                        ForEach(space.pinnedTabIDs, id: \.self) { id in
+                            if let tab = store.tab(id) { TabRow(tab: tab) }
+                        }
+                        Spacer().frame(height: 10)
+                    }
                     ForEach(space.groups) { group in
                         GroupSection(group: group)
                     }
@@ -82,12 +86,22 @@ struct SidebarView: View {
     }
 
     private var addressButton: some View {
-        Button { model.openPalette(.search) } label: {
+        Button { model.openPalette(.address) } label: {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondaryText)
-                Text(store.selectedTab?.url?.host() ?? "Поиск или адрес")
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Domain in full, the path dimmed after it; a click opens the whole URL to read or copy.
+                Group {
+                    if let url = store.selectedTab?.url, let host = url.host() {
+                        let rest = url.absoluteString.components(separatedBy: host).dropFirst().joined(separator: host)
+                        Text(host.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression))
+                            + Text(rest == "/" ? "" : rest).foregroundColor(Palette.secondaryText)
+                    } else {
+                        Text("Поиск или адрес")
+                    }
+                }
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Text("⌘K")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.secondaryText)
@@ -98,6 +112,15 @@ struct SidebarView: View {
             .frame(height: 34)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .contentShape(Rectangle())
+        }
+        .help(store.selectedTab?.url?.absoluteString ?? "")
+        .contextMenu {
+            if let url = store.selectedTab?.url {
+                Button("Скопировать адрес") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                }
+            }
         }
         .buttonStyle(.plain)
     }
@@ -275,35 +298,6 @@ struct SectionDivider: View {
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 4)
-    }
-}
-
-/// Pinned tabs as a 4-column grid of tiles.
-struct PinnedGrid: View {
-    @Environment(BrowserStore.self) private var store
-    let tabIDs: [UUID]
-
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
-            ForEach(tabIDs, id: \.self) { id in
-                if let tab = store.tab(id) {
-                    Button { store.select(id) } label: {
-                        Favicon(tab: tab, size: 20)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(
-                                store.activeSpace.selectedTabID == id ? Palette.surface : Palette.surface.opacity(0.75),
-                                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help(tab.displayTitle)
-                    .contextMenu {
-                        Button("Открепить") { store.togglePin(id) }
-                        Button("Закрыть") { store.closeTab(id) }
-                    }
-                }
-            }
-        }
     }
 }
 

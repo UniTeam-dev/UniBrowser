@@ -10,6 +10,10 @@ final class MobileTab: Identifiable {
     let id: UUID
     var url: URL?
     var title: String
+    /// The name the user gave the tab; nil shows the page title.
+    var customTitle: String?
+    /// The address the tab had when it was pinned; nil when not pinned.
+    var pinnedURL: URL?
     var isLoading = false
     var estimatedProgress: Double = 0
     var canGoBack = false
@@ -25,12 +29,15 @@ final class MobileTab: Identifiable {
     @ObservationIgnored private var controller: MobileTabController?
 
     var displayTitle: String {
+        if let customTitle { return customTitle }
         if !title.isEmpty { return title }
         return url?.host() ?? "Новая вкладка"
     }
 
-    init(id: UUID = UUID(), url: URL?, title: String = "", lastActivated: Date = .now) {
+    init(id: UUID = UUID(), url: URL?, title: String = "", customTitle: String? = nil, pinnedURL: URL? = nil, lastActivated: Date = .now) {
         self.id = id
+        self.pinnedURL = pinnedURL
+        self.customTitle = customTitle
         self.url = url
         self.title = title
         self.lastActivated = lastActivated
@@ -95,6 +102,9 @@ final class MobileTab: Identifiable {
         )
         loginOffers = []
     }
+
+    /// The tab is pinned and has wandered off the page it was pinned on.
+    var isAwayFromPin: Bool { pinnedURL != nil && pinnedURL != url }
 
     func load(_ url: URL) {
         self.url = url

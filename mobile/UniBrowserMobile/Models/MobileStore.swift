@@ -35,8 +35,10 @@ final class MobileStore {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
-                ($0.id, MobileTab(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated))
+                ($0.id, MobileTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated))
             })
+            // Tabs pinned before the pin address was kept start from where they are now.
+            for id in spaces.flatMap(\.pinnedTabIDs) where tabs[id]?.pinnedURL == nil { tabs[id]?.pinnedURL = tabs[id]?.url }
             archive = snapshot.archive ?? []
             lastModified = snapshot.modifiedAt ?? .distantPast
         } else {
@@ -126,17 +128,66 @@ final class MobileStore {
         scheduleSave()
     }
 
+    /// An empty name goes back to the page title.
+    func renameTab(_ tabID: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        tabs[tabID]?.customTitle = name.isEmpty ? nil : name
+        scheduleSave()
+    }
+
+    /// A tab in a folder is pinned inside that folder; any other tab goes to the space's pinned list.
     func togglePin(_ tabID: UUID) {
+        if isInGroup(tabID) { return togglePinInGroup(tabID) }
         mutateActiveSpace { space in
             if space.pinnedTabIDs.contains(tabID) {
+                tabs[tabID]?.pinnedURL = nil
                 space.pinnedTabIDs.removeAll { $0 == tabID }
                 space.looseTabIDs.append(tabID)
             } else {
                 space.looseTabIDs.removeAll { $0 == tabID }
                 for g in space.groups.indices { space.groups[g].tabIDs.removeAll { $0 == tabID } }
                 space.pinnedTabIDs.append(tabID)
+                tabs[tabID]?.pinnedURL = tabs[tabID]?.url
             }
         }
+    }
+
+    /// Pinned inside its folder: the tab stays there, on top, and remembers its page like any pinned tab.
+    func togglePinInGroup(_ tabID: UUID) {
+        guard let tab = tabs[tabID] else { return }
+        tab.pinnedURL = tab.pinnedURL == nil ? tab.url : nil
+        scheduleSave()
+    }
+
+    func isInGroup(_ tabID: UUID) -> Bool {
+        activeSpace.groups.contains { $0.tabIDs.contains(tabID) }
+    }
+
+    /// The folder's tabs with the pinned ones first, each part in its own order.
+    func orderedTabIDs(_ group: TabGroup) -> [UUID] {
+        let pinned = group.tabIDs.filter { tabs[$0]?.pinnedURL != nil }
+        return pinned + group.tabIDs.filter { tabs[$0]?.pinnedURL == nil }
+    }
+
+    /// Drag to reorder inside one list: a folder (as shown, pinned first), the pinned tabs, or "Сегодня".
+    func reorder(group groupID: UUID?, pinned: Bool = false, from: IndexSet, to: Int) {
+        mutateActiveSpace { space in
+            if pinned {
+                space.pinnedTabIDs.move(fromOffsets: from, toOffset: to)
+            } else if let groupID, let g = space.groups.firstIndex(where: { $0.id == groupID }) {
+                var ids = orderedTabIDs(space.groups[g])
+                ids.move(fromOffsets: from, toOffset: to)
+                space.groups[g].tabIDs = ids
+            } else if groupID == nil {
+                space.looseTabIDs.move(fromOffsets: from, toOffset: to)
+            }
+        }
+    }
+
+    func returnToPin(_ tabID: UUID) {
+        guard let tab = tabs[tabID], let url = tab.pinnedURL else { return }
+        tab.load(url)
+        scheduleSave()
     }
 
     /// Opens what the user typed: a URL if it looks like one, otherwise a search.
@@ -162,6 +213,7 @@ final class MobileStore {
     }
 
     func move(_ tabID: UUID, toGroup groupID: UUID?) {
+        tabs[tabID]?.pinnedURL = nil
         mutateActiveSpace { space in
             space.pinnedTabIDs.removeAll { $0 == tabID }
             space.looseTabIDs.removeAll { $0 == tabID }
@@ -243,7 +295,7 @@ final class MobileStore {
         SessionSnapshot(
             spaces: spaces,
             activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) },
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated) },
             archive: archive,
             modifiedAt: modifiedAt,
             deviceID: Self.deviceID
@@ -272,10 +324,12 @@ final class MobileStore {
                 } else if tab.webView == nil {
                     tab.title = record.title
                 }
+                tab.customTitle = record.customTitle
+                tab.pinnedURL = record.pinnedURL
                 tab.lastActivated = max(tab.lastActivated, record.lastActivated)
                 updated[record.id] = tab
             } else {
-                updated[record.id] = MobileTab(id: record.id, url: record.url, title: record.title, lastActivated: record.lastActivated)
+                updated[record.id] = MobileTab(id: record.id, url: record.url, title: record.title, customTitle: record.customTitle, pinnedURL: record.pinnedURL, lastActivated: record.lastActivated)
             }
         }
         for (id, tab) in tabs where updated[id] == nil { tab.sleep() }

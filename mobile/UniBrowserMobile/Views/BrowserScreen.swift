@@ -179,8 +179,9 @@ private struct BottomBar: View {
                         Image(systemName: BrowsingMode.viaMac.systemImage)
                             .foregroundStyle(store.activeSpace.color)
                     }
-                    Text(tab?.url?.host() ?? "Поиск или адрес")
+                    Text(tab?.url.map { $0.absoluteString.replacingOccurrences(of: "^https?://(www\\.)?", with: "", options: .regularExpression) } ?? "Поиск или адрес")
                         .lineLimit(1)
+                        .truncationMode(.middle)
                         .foregroundStyle(tab == nil ? .secondary : .primary)
                 }
                 .frame(maxWidth: .infinity)

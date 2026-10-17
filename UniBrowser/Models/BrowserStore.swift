@@ -34,8 +34,10 @@ final class BrowserStore {
             activeSpaceID = snapshot.activeSpaceID
             archive = snapshot.archive ?? []
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
-                ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated))
+                ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated))
             })
+            // Tabs pinned before the pin address was kept start from where they are now.
+            for id in spaces.flatMap(\.pinnedTabIDs) where tabs[id]?.pinnedURL == nil { tabs[id]?.pinnedURL = tabs[id]?.url }
         } else {
             let work = Space(name: "Работа", colorHex: Palette.spaceColors[0])
             spaces = [work, Space(name: "Личное", colorHex: Palette.spaceColors[1])]
@@ -134,17 +136,51 @@ final class BrowserStore {
         if let id = activeSpace.selectedTabID { closeTab(id) }
     }
 
+    /// An empty name goes back to the page title.
+    func renameTab(_ tabID: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        tabs[tabID]?.customTitle = name.isEmpty ? nil : name
+        scheduleSave()
+    }
+
+    /// A tab in a folder is pinned inside that folder; any other tab goes to the space's pinned list.
     func togglePin(_ tabID: UUID) {
+        if isInGroup(tabID) { return togglePinInGroup(tabID) }
         mutateActiveSpace { space in
             if space.pinnedTabIDs.contains(tabID) {
+                tabs[tabID]?.pinnedURL = nil
                 space.pinnedTabIDs.removeAll { $0 == tabID }
                 space.looseTabIDs.append(tabID)
             } else {
                 space.looseTabIDs.removeAll { $0 == tabID }
                 for g in space.groups.indices { space.groups[g].tabIDs.removeAll { $0 == tabID } }
                 space.pinnedTabIDs.append(tabID)
+                tabs[tabID]?.pinnedURL = tabs[tabID]?.url
             }
         }
+    }
+
+    /// Pinned inside its folder: the tab stays there, on top, and remembers its page like any pinned tab.
+    func togglePinInGroup(_ tabID: UUID) {
+        guard let tab = tabs[tabID] else { return }
+        tab.pinnedURL = tab.pinnedURL == nil ? tab.url : nil
+        scheduleSave()
+    }
+
+    func isInGroup(_ tabID: UUID) -> Bool {
+        activeSpace.groups.contains { $0.tabIDs.contains(tabID) }
+    }
+
+    /// The folder's tabs with the pinned ones first, each part in its own order.
+    func orderedTabIDs(_ group: TabGroup) -> [UUID] {
+        let pinned = group.tabIDs.filter { tabs[$0]?.pinnedURL != nil }
+        return pinned + group.tabIDs.filter { tabs[$0]?.pinnedURL == nil }
+    }
+
+    func returnToPin(_ tabID: UUID) {
+        guard let tab = tabs[tabID], let url = tab.pinnedURL else { return }
+        tab.load(url)
+        scheduleSave()
     }
 
     /// Opens what the user typed: a URL if it looks like one, otherwise a search.
@@ -220,6 +256,7 @@ final class BrowserStore {
     }
 
     func move(_ tabID: UUID, toGroup groupID: UUID?) {
+        tabs[tabID]?.pinnedURL = nil
         mutateActiveSpace { space in
             space.pinnedTabIDs.removeAll { $0 == tabID }
             space.looseTabIDs.removeAll { $0 == tabID }
@@ -228,6 +265,33 @@ final class BrowserStore {
                 space.groups[g].tabIDs.append(tabID)
             } else {
                 space.looseTabIDs.append(tabID)
+            }
+        }
+    }
+
+    /// Drag and drop onto a tab: puts the dragged tab just above it, in whatever list the target is in.
+    /// Reordering inside a folder keeps a folder pin; landing elsewhere drops it, landing among pinned tabs pins.
+    func moveTab(_ tabID: UUID, before targetID: UUID) {
+        guard tabID != targetID, activeSpace.allTabIDs.contains(targetID), tabs[tabID] != nil else { return }
+        let space = activeSpace
+        let intoPinned = space.pinnedTabIDs.contains(targetID)
+        let sameGroup = space.groups.contains { $0.tabIDs.contains(tabID) && $0.tabIDs.contains(targetID) }
+        if intoPinned {
+            if !space.pinnedTabIDs.contains(tabID) { tabs[tabID]?.pinnedURL = tabs[tabID]?.url }
+        } else if !sameGroup {
+            tabs[tabID]?.pinnedURL = nil
+        }
+        mutateActiveSpace { space in
+            space.pinnedTabIDs.removeAll { $0 == tabID }
+            space.looseTabIDs.removeAll { $0 == tabID }
+            for g in space.groups.indices { space.groups[g].tabIDs.removeAll { $0 == tabID } }
+            if let i = space.pinnedTabIDs.firstIndex(of: targetID) {
+                space.pinnedTabIDs.insert(tabID, at: i)
+            } else if let g = space.groups.firstIndex(where: { $0.tabIDs.contains(targetID) }),
+                      let i = space.groups[g].tabIDs.firstIndex(of: targetID) {
+                space.groups[g].tabIDs.insert(tabID, at: i)
+            } else if let i = space.looseTabIDs.firstIndex(of: targetID) {
+                space.looseTabIDs.insert(tabID, at: i)
             }
         }
     }
@@ -375,7 +439,7 @@ final class BrowserStore {
         SessionSnapshot(
             spaces: spaces,
             activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) },
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated) },
             archive: archive,
             modifiedAt: modifiedAt,
             deviceID: Self.deviceID
@@ -409,10 +473,12 @@ final class BrowserStore {
                 } else if tab.isAsleep {
                     tab.title = record.title
                 }
+                tab.customTitle = record.customTitle
+                tab.pinnedURL = record.pinnedURL
                 tab.lastActivated = max(tab.lastActivated, record.lastActivated)
                 updated[record.id] = tab
             } else {
-                let tab = BrowserTab(id: record.id, url: record.url, title: record.title, lastActivated: record.lastActivated)
+                let tab = BrowserTab(id: record.id, url: record.url, title: record.title, customTitle: record.customTitle, pinnedURL: record.pinnedURL, lastActivated: record.lastActivated)
                 updated[record.id] = tab
                 environment.extensions.tabOpened(tab)
             }

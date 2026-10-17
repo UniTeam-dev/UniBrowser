@@ -55,7 +55,7 @@ struct GroupSection: View {
 
             if group.isExpanded {
                 VStack(spacing: 2) {
-                    ForEach(group.tabIDs, id: \.self) { id in
+                    ForEach(store.orderedTabIDs(group), id: \.self) { id in
                         if let tab = store.tab(id) { TabRow(tab: tab) }
                     }
                 }
@@ -69,6 +69,10 @@ struct TabRow: View {
     @Environment(BrowserStore.self) private var store
     let tab: BrowserTab
     @State private var isHovered = false
+    @State private var isDropTarget = false
+    @State private var isRenaming = false
+    @State private var draftName = ""
+    @FocusState private var isNameFocused: Bool
 
     private var isSelected: Bool { store.activeSpace.selectedTabID == tab.id }
 
@@ -76,11 +80,24 @@ struct TabRow: View {
         Button { store.select(tab.id) } label: {
             HStack(spacing: 8) {
                 Favicon(tab: tab, size: 16)
-                Text(tab.displayTitle)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
+                if isRenaming {
+                    TextField(tab.title.isEmpty ? "Название" : tab.title, text: $draftName)
+                        .textFieldStyle(.plain)
+                        .onSubmit {
+                            store.renameTab(tab.id, to: draftName)
+                            isRenaming = false
+                        }
+                        .onExitCommand { isRenaming = false }
+                        .focused($isNameFocused)
+                        .onAppear { isNameFocused = true }
+                        .onChange(of: isNameFocused) { if !isNameFocused { isRenaming = false } }
+                } else {
+                    Text(tab.displayTitle)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
+                }
                 if tab.isPlayingAudio {
                     Image(systemName: "speaker.wave.2")
                         .foregroundStyle(Palette.accent)
@@ -93,6 +110,18 @@ struct TabRow: View {
                         .accessibilityLabel("Закрыть вкладку")
                 } else if tab.isAsleep && !isSelected {
                     Text("спит").font(.system(size: 11)).foregroundStyle(Color(hex: "#8E8E93"))
+                }
+                // Last, so the hover close button appears beside it instead of in its place.
+                if tab.isAwayFromPin {
+                    Button { store.returnToPin(tab.id) } label: { Text("📌").font(.system(size: 11)) }
+                        .buttonStyle(.plain)
+                        .help("Вернуть на закреплённую страницу")
+                        .accessibilityLabel("Вернуть на закреплённую страницу")
+                } else if tab.pinnedURL != nil && store.isInGroup(tab.id) {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Palette.secondaryText)
+                        .accessibilityLabel("Закреплена в папке")
                 }
             }
             .padding(.horizontal, 8)
@@ -111,8 +140,24 @@ struct TabRow: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .draggable(tab.id.uuidString)
+        .dropDestination(for: String.self) { items, _ in
+            guard let id = items.first.flatMap(UUID.init(uuidString:)) else { return false }
+            withAnimation(.snappy) { store.moveTab(id, before: tab.id) }
+            return true
+        } isTargeted: { isDropTarget = $0 }
+        // A line above the row shows where the dragged tab will land.
+        .overlay(alignment: .top) {
+            if isDropTarget { Capsule().fill(Palette.accent).frame(height: 2).offset(y: -1) }
+        }
         .contextMenu {
-            Button("Закрепить") { store.togglePin(tab.id) }
+            Button(tab.pinnedURL == nil ? "Закрепить" : "Открепить") { store.togglePin(tab.id) }
+            if tab.isAwayFromPin {
+                Button("Вернуть на закреплённую страницу") { store.returnToPin(tab.id) }
+            }
+            Button("Переименовать") { draftName = tab.customTitle ?? ""; isRenaming = true }
+            if tab.customTitle != nil {
+                Button("Вернуть название страницы") { store.renameTab(tab.id, to: "") }
+            }
             Menu("Переместить в группу") {
                 ForEach(store.activeSpace.groups) { group in
                     Button(group.name) { store.move(tab.id, toGroup: group.id) }
