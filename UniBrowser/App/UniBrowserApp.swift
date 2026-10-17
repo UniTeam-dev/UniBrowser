@@ -11,6 +11,8 @@ struct UniBrowserApp: App {
                 .environment(model)
                 .environment(model.store)
                 .frame(minWidth: 820, minHeight: 520)
+                // The design is light-only; dark mode would draw white titles on the white selected row.
+                .preferredColorScheme(.light)
                 .task { await model.passwords.apple.probe() }
                 .onAppear { appDelegate.model = model }
         }
