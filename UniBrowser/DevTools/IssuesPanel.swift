@@ -114,17 +114,19 @@ final class IssuesModel {
         return issue.url.map { url in session.network.entries.contains { $0.url == url } } ?? false
     }
 
-    /// Opens Элементы and points at the element on the page.
-    // ponytail: Элементы has no "select node by handle" call yet; when it does, select it
-    // in the tree here too.
+    /// Opens Элементы on the element and points at it on the page.
     func showElement(_ issue: DevToolsIssue) {
         guard let session, let element = issue.element else { return }
         session.panel = .elements
-        Task { _ = try? await session.call(frame: issue.frame, "issues.reveal", args: ["handle": element]) }
+        Task {
+            _ = try? await session.call(frame: issue.frame, "issues.reveal", args: ["handle": element])
+            await session.elements.reveal(DOMKey(frame: issue.frame, handle: element))
+        }
     }
 
     func showSource(_ issue: DevToolsIssue) {
-        session?.panel = .sources
+        guard let session, let source = issue.source else { return }
+        session.sources.reveal(url: source, line: issue.line ?? 1)
     }
 }
 

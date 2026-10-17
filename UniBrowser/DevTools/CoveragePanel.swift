@@ -232,9 +232,8 @@ struct CoveragePanel: View {
     }
 
     private func openInSources(_ sheet: CoverageModel.Sheet) {
-        session.panel = .sources
-        // merge: when Источники has its reveal API, call it here, e.g.
-        // session.sources.reveal(url: sheet.url, inline: sheet.inline, line: sheet.unusedLines.first?.lowerBound)
+        let firstUnused = session.coverage.unusedLines(url: sheet.url, inline: sheet.inline).first?.lowerBound
+        session.sources.reveal(url: sheet.url, line: firstUnused ?? 1)
     }
 
     private var footer: some View {

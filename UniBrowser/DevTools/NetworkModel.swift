@@ -110,8 +110,8 @@ final class NetworkModel {
     var selection: NetworkEntry.ID?
 
     // Toolbar. Preserve log, disable cache and the patterns are remembered for all tabs.
-    var preserveLog = UserDefaults.standard.bool(forKey: "devToolsNetworkPreserveLog") {
-        didSet { UserDefaults.standard.set(preserveLog, forKey: "devToolsNetworkPreserveLog") }
+    var preserveLog = UserDefaults.standard.bool(forKey: "devToolsPreserveLog") {
+        didSet { UserDefaults.standard.set(preserveLog, forKey: "devToolsPreserveLog") }
     }
     var disableCache = UserDefaults.standard.bool(forKey: "devToolsDisableCache") {
         didSet { UserDefaults.standard.set(disableCache, forKey: "devToolsDisableCache"); apply() }
