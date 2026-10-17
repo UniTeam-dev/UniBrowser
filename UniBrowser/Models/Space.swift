@@ -16,6 +16,8 @@ struct Space: Identifiable, Codable, Hashable {
     var id = UUID()
     var name: String
     var colorHex: String
+    /// Small JPEG/PNG (≤128 px) shown instead of the colour; nil means use the colour.
+    var imageData: Data?
     /// Pinned tiles at the top of the sidebar.
     var pinnedTabIDs: [UUID] = []
     var groups: [TabGroup] = []

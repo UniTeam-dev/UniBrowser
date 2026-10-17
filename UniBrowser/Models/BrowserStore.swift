@@ -328,6 +328,19 @@ final class BrowserStore {
         switchToSpace(space.id)
     }
 
+    func renameSpace(_ spaceID: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let i = spaces.firstIndex(where: { $0.id == spaceID }) else { return }
+        spaces[i].name = name
+        scheduleSave()
+    }
+
+    func setSpaceImage(_ spaceID: UUID, _ data: Data?) {
+        guard let i = spaces.firstIndex(where: { $0.id == spaceID }) else { return }
+        spaces[i].imageData = data
+        scheduleSave()
+    }
+
     // MARK: - Helpers
 
     private func mutateActiveSpace(_ change: (inout Space) -> Void) {

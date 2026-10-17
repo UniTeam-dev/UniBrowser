@@ -8,7 +8,7 @@ struct MainWindow: View {
         HStack(spacing: 0) {
             if model.isSidebarVisible {
                 SidebarView()
-                    .frame(width: 260)
+                    .frame(width: 290)
                     .transition(.move(edge: .leading))
             }
             VStack(spacing: 0) {

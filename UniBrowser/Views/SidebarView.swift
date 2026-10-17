@@ -1,10 +1,14 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The vertical tab panel from the approved design: toolbar, address button,
-/// pinned tiles, the space's folder groups, today's tabs and the space switcher.
+/// pinned tiles, the space rail beside the space's folder groups and today's tabs.
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(BrowserStore.self) private var store
+    @State private var isRenamingSpace = false
+    @State private var draftSpaceName = ""
+    @FocusState private var isSpaceNameFocused: Bool
 
     var body: some View {
         let space = store.activeSpace
@@ -15,7 +19,22 @@ struct SidebarView: View {
             if !space.pinnedTabIDs.isEmpty {
                 PinnedGrid(tabIDs: space.pinnedTabIDs)
             }
-            spaceHeader(space)
+            HStack(alignment: .top, spacing: 8) {
+                SpaceRail(rename: startRenamingSpace)
+                VStack(alignment: .leading, spacing: 12) {
+                    spaceHeader(space)
+                    tabList(space)
+                }
+            }
+            bottomBar
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(Color(hex: "#1D1D1F"))
+        .padding(EdgeInsets(top: 12, leading: 10, bottom: 10, trailing: 10))
+        .onChange(of: store.activeSpaceID) { isRenamingSpace = false }
+    }
+
+    private func tabList(_ space: Space) -> some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(space.groups) { group in
@@ -37,11 +56,12 @@ struct SidebarView: View {
                 }
             }
             .scrollIndicators(.never)
-            bottomBar
-        }
-        .font(.system(size: 13))
-        .foregroundStyle(Color(hex: "#1D1D1F"))
-        .padding(EdgeInsets(top: 12, leading: 10, bottom: 10, trailing: 10))
+    }
+
+    private func startRenamingSpace() {
+        draftSpaceName = store.activeSpace.name
+        isRenamingSpace = true
+        isSpaceNameFocused = true
     }
 
     private var toolbar: some View {
@@ -84,8 +104,23 @@ struct SidebarView: View {
 
     private func spaceHeader(_ space: Space) -> some View {
         HStack(spacing: 8) {
-            Circle().fill(space.color).frame(width: 8, height: 8)
-            Text(space.name).fontWeight(.semibold)
+            if isRenamingSpace {
+                TextField("Название", text: $draftSpaceName)
+                    .textFieldStyle(.plain)
+                    .fontWeight(.semibold)
+                    .focused($isSpaceNameFocused)
+                    .onSubmit {
+                        store.renameSpace(space.id, to: draftSpaceName)
+                        isRenamingSpace = false
+                    }
+                    .onExitCommand { isRenamingSpace = false }
+            } else {
+                Text(space.name)
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+                    .onTapGesture(count: 2, perform: startRenamingSpace)
+                    .help("Дважды щёлкните, чтобы переименовать")
+            }
             Text("· \(space.allTabIDs.count) \(Plural.tabs(space.allTabIDs.count))")
                 .font(.system(size: 12))
                 .foregroundStyle(Palette.secondaryText)
@@ -109,29 +144,6 @@ struct SidebarView: View {
                     .accessibilityLabel("iPhone подключён")
             }
             Spacer()
-            HStack(spacing: 10) {
-                ForEach(store.spaces) { space in
-                    Button { store.switchToSpace(space.id) } label: {
-                        Circle()
-                            .fill(space.color)
-                            .frame(width: 22, height: 22)
-                            .overlay(Circle().inset(by: 2).stroke(Palette.sidebar, lineWidth: 2))
-                            .overlay(Circle().stroke(space.id == store.activeSpaceID ? space.color : .clear, lineWidth: 2))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Пространство \(space.name)")
-                }
-                Button { store.newSpace(named: "Пространство \(store.spaces.count + 1)") } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11))
-                        .frame(width: 22, height: 22)
-                        .overlay(Circle().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Palette.secondaryText)
-                .accessibilityLabel("Новое пространство")
-            }
-            Spacer()
             iconButton("arrow.down.to.line", label: "Загрузки") {}
         }
         .padding(.top, 10)
@@ -146,6 +158,95 @@ struct SidebarView: View {
         .foregroundStyle(enabled ? Palette.secondaryText : Color(hex: "#A1A1A6"))
         .disabled(!enabled)
         .accessibilityLabel(label)
+    }
+}
+
+/// Narrow vertical strip of spaces left of the tab list: each space is its picture
+/// or colour, the active one is ringed; click switches, right-click edits.
+struct SpaceRail: View {
+    @Environment(BrowserStore.self) private var store
+    let rename: @MainActor () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ForEach(store.spaces) { space in
+                let isActive = space.id == store.activeSpaceID
+                Button { store.switchToSpace(space.id) } label: {
+                    SpaceIcon(space: space, size: 26)
+                        .padding(3)
+                        .overlay(Circle().stroke(isActive ? space.color : .clear, lineWidth: 2))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(space.name)
+                .accessibilityLabel("Пространство \(space.name)")
+                .accessibilityAddTraits(isActive ? .isSelected : [])
+                .contextMenu {
+                    Button("Переименовать") {
+                        store.switchToSpace(space.id)
+                        DispatchQueue.main.async { rename() } // after the switch resets the header
+                    }
+                    Button("Выбрать картинку…") { pickImage(for: space.id) }
+                    if space.imageData != nil {
+                        Button("Убрать картинку") { store.setSpaceImage(space.id, nil) }
+                    }
+                }
+            }
+            Button { store.newSpace(named: "Пространство \(store.spaces.count + 1)") } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 11))
+                    .frame(width: 26, height: 26)
+                    .overlay(Circle().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [2, 2])))
+                    .padding(3)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Palette.secondaryText)
+            .accessibilityLabel("Новое пространство")
+        }
+        .frame(width: 32)
+    }
+
+    private func pickImage(for spaceID: UUID) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.message = "Картинка для пространства"
+        guard panel.runModal() == .OK, let url = panel.url, let data = Self.thumbnailData(url) else { return }
+        store.setSpaceImage(spaceID, data)
+    }
+
+    /// Downscales to ≤128 px (the rail icon is 26 pt) so the session file and the iPhone channel stay light:
+    /// JPEG for opaque pictures, PNG when there is transparency.
+    static func thumbnailData(_ url: URL) -> Data? {
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 128,
+        ] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        let rep = NSBitmapImageRep(cgImage: image)
+        let opaque = [.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
+        return opaque
+            ? rep.representation(using: .jpeg, properties: [.compressionFactor: 0.7])
+            : rep.representation(using: .png, properties: [:])
+    }
+}
+
+/// A space's picture cropped to a circle, or its colour when it has none.
+struct SpaceIcon: View {
+    let space: Space
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let data = space.imageData, let image = NSImage(data: data) {
+                Image(nsImage: image).resizable().scaledToFill()
+            } else {
+                space.color
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
     }
 }
 
