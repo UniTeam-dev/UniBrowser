@@ -1,0 +1,10 @@
+{
+  "name": "DevTools test",
+  "short_name": "DT test",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#2563C9",
+  "background_color": "#FFFFFF",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

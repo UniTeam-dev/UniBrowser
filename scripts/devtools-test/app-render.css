@@ -1,0 +1,15 @@
+/* «Рендеринг»: each probe line changes with the emulated media. */
+#probe-media div::after { font-weight: 600; }
+#probe-motion::after { content: 'no-preference'; }
+@media (prefers-reduced-motion: reduce) { #probe-motion::after { content: 'reduce'; color: #d93f2b; } }
+#probe-contrast::after { content: 'no-preference'; }
+@media (prefers-contrast: more) { #probe-contrast::after { content: 'more'; color: #d93f2b; } }
+@media (prefers-contrast: less) { #probe-contrast::after { content: 'less'; color: #d93f2b; } }
+#probe-type::after { content: 'screen'; }
+@media print { #probe-type::after { content: 'print'; color: #d93f2b; } }
+#probe-scheme::after { content: 'light'; }
+@media (prefers-color-scheme: dark) { #probe-scheme::after { content: 'dark'; color: #d93f2b; } }
+#probe-width::after { content: 'шире 600px'; }
+@media (max-width: 600px) { #probe-width::after { content: 'не шире 600px'; color: #d93f2b; } }
+.swatches span { display: inline-block; width: 40px; height: 24px; }
+#render-probe { white-space: pre-wrap; font: 12px ui-monospace, monospace; }

@@ -182,13 +182,15 @@ struct TabPane: View {
         VStack(spacing: 0) {
             PasswordBar(tab: tab)
             DevToolsDock(tab: tab) {
-                ZStack(alignment: .top) {
-                    WebViewContainer(tab: tab, environment: store.environment)
-                    if tab.isLoading {
-                        ProgressView(value: tab.estimatedProgress)
-                            .progressViewStyle(.linear)
-                            .tint(Palette.accent)
-                            .frame(height: 2)
+                DeviceFrame(tab: tab) {
+                    ZStack(alignment: .top) {
+                        WebViewContainer(tab: tab, environment: store.environment)
+                        if tab.isLoading {
+                            ProgressView(value: tab.estimatedProgress)
+                                .progressViewStyle(.linear)
+                                .tint(Palette.accent)
+                                .frame(height: 2)
+                        }
                     }
                 }
             }

@@ -209,7 +209,7 @@ struct DevToolsView: View {
                     Image(systemName: "iphone.gen3")
                         .foregroundStyle(tab.deviceMode.isOn ? Palette.accent : Palette.secondaryText)
                 }
-                .help("Режим устройства (⇧⌘M)")
+                .help("Режим устройства (⌥⇧⌘M)")
                 .accessibilityLabel("Режим устройства")
                 Button("Web Inspector") {
                     if let webView = session.webView { WebInspector.show(webView) }

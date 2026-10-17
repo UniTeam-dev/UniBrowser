@@ -67,8 +67,9 @@ struct BrowserCommands: Commands {
                 devTools.elements.pick()
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
-            // ponytail: no ⇧⌘M (spec) yet: «Карта вкладок» already uses it.
+            // ⇧⌘M (spec) is «Карта вкладок», so ⌥⇧⌘M.
             Button("Режим устройства") { model.store.selectedTab?.deviceMode.isOn.toggle() }
+                .keyboardShortcut("m", modifiers: [.command, .option, .shift])
             Button("Жёсткая перезагрузка") { model.store.selectedTab?.webView?.reloadFromOrigin() }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
             Divider()

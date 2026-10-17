@@ -5,6 +5,8 @@
 <head>
   <meta charset="utf-8">
   <title>DevTools test</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="app-render.css">
   <script>
     // Logged at load, before the panel is open: must appear when it opens.
     console.log('main: load log', 42, { nested: { deep: [1, 2, 3] } });
@@ -19,10 +21,23 @@
 <body>
   <h1>DevTools test</h1>
   <button id="log" onclick="console.log('main: click', new Date().toISOString())">Лог из страницы</button>
-  <p>Cross-origin iframe (port 8001):</p>
+  <p>Cross-origin iframe (page port + 1):</p>
   <iframe id="child" width="600" height="160"></iframe>
+  <h2>Приложение и Рендеринг</h2>
+  <div id="probe-media">
+    <div id="probe-motion">prefers-reduced-motion: </div>
+    <div id="probe-contrast">prefers-contrast: </div>
+    <div id="probe-type">media type: </div>
+    <div id="probe-scheme">prefers-color-scheme: </div>
+    <div id="probe-width">viewport: </div>
+  </div>
+  <p class="swatches"><span style="background:#d00"></span><span style="background:#0a0"></span><span style="background:#00d"></span><span style="background:#dd0"></span></p>
+  <p><button id="geo">Где я?</button> <span id="geo-out"></span></p>
+  <noscript><p><b>JavaScript отключён</b></p></noscript>
+  <pre id="render-probe"></pre>
+  <script src="app-render.js"></script>
   <script>
-    document.getElementById('child').src = location.protocol + '//' + location.hostname + ':8001/frame.html';
+    document.getElementById('child').src = location.protocol + '//' + location.hostname + ':' + (+location.port + 1) + '/frame.html';
   </script>
 </body>
 </html>
