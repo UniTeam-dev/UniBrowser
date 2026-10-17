@@ -251,7 +251,15 @@ struct DevToolsView: View {
         return HStack(spacing: 0) {
             ForEach(all.prefix(visible)) { panel in
                 Button { session.panel = panel } label: {
-                    Text(panel.title)
+                    HStack(spacing: 4) {
+                        Text(panel.title)
+                        if panel == .issues, session.issues.count > 0 {
+                            Text("\(session.issues.count)")
+                                .font(.system(size: 10, weight: .semibold))
+                                .padding(.horizontal, 5)
+                                .background(Color.orange.opacity(0.25), in: .capsule)
+                        }
+                    }
                         .padding(.horizontal, 8)
                         .frame(maxHeight: .infinity)
                         .overlay(alignment: .bottom) {
