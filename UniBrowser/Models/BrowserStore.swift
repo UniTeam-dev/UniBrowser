@@ -269,6 +269,33 @@ final class BrowserStore {
         }
     }
 
+    /// Drag and drop onto a tab: puts the dragged tab just above it, in whatever list the target is in.
+    /// Reordering inside a folder keeps a folder pin; landing elsewhere drops it, landing among pinned tabs pins.
+    func moveTab(_ tabID: UUID, before targetID: UUID) {
+        guard tabID != targetID, activeSpace.allTabIDs.contains(targetID), tabs[tabID] != nil else { return }
+        let space = activeSpace
+        let intoPinned = space.pinnedTabIDs.contains(targetID)
+        let sameGroup = space.groups.contains { $0.tabIDs.contains(tabID) && $0.tabIDs.contains(targetID) }
+        if intoPinned {
+            if !space.pinnedTabIDs.contains(tabID) { tabs[tabID]?.pinnedURL = tabs[tabID]?.url }
+        } else if !sameGroup {
+            tabs[tabID]?.pinnedURL = nil
+        }
+        mutateActiveSpace { space in
+            space.pinnedTabIDs.removeAll { $0 == tabID }
+            space.looseTabIDs.removeAll { $0 == tabID }
+            for g in space.groups.indices { space.groups[g].tabIDs.removeAll { $0 == tabID } }
+            if let i = space.pinnedTabIDs.firstIndex(of: targetID) {
+                space.pinnedTabIDs.insert(tabID, at: i)
+            } else if let g = space.groups.firstIndex(where: { $0.tabIDs.contains(targetID) }),
+                      let i = space.groups[g].tabIDs.firstIndex(of: targetID) {
+                space.groups[g].tabIDs.insert(tabID, at: i)
+            } else if let i = space.looseTabIDs.firstIndex(of: targetID) {
+                space.looseTabIDs.insert(tabID, at: i)
+            }
+        }
+    }
+
     func toggleGroup(_ groupID: UUID) {
         mutateActiveSpace { space in
             if let g = space.groups.firstIndex(where: { $0.id == groupID }) {

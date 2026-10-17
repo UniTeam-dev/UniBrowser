@@ -69,6 +69,7 @@ struct TabRow: View {
     @Environment(BrowserStore.self) private var store
     let tab: BrowserTab
     @State private var isHovered = false
+    @State private var isDropTarget = false
     @State private var isRenaming = false
     @State private var draftName = ""
     @FocusState private var isNameFocused: Bool
@@ -139,6 +140,15 @@ struct TabRow: View {
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
         .draggable(tab.id.uuidString)
+        .dropDestination(for: String.self) { items, _ in
+            guard let id = items.first.flatMap(UUID.init(uuidString:)) else { return false }
+            withAnimation(.snappy) { store.moveTab(id, before: tab.id) }
+            return true
+        } isTargeted: { isDropTarget = $0 }
+        // A line above the row shows where the dragged tab will land.
+        .overlay(alignment: .top) {
+            if isDropTarget { Capsule().fill(Palette.accent).frame(height: 2).offset(y: -1) }
+        }
         .contextMenu {
             Button(tab.pinnedURL == nil ? "Закрепить" : "Открепить") { store.togglePin(tab.id) }
             if tab.isAwayFromPin {

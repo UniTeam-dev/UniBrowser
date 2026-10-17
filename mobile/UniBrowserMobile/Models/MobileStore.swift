@@ -169,6 +169,21 @@ final class MobileStore {
         return pinned + group.tabIDs.filter { tabs[$0]?.pinnedURL == nil }
     }
 
+    /// Drag to reorder inside one list: a folder (as shown, pinned first), the pinned tabs, or "Сегодня".
+    func reorder(group groupID: UUID?, pinned: Bool = false, from: IndexSet, to: Int) {
+        mutateActiveSpace { space in
+            if pinned {
+                space.pinnedTabIDs.move(fromOffsets: from, toOffset: to)
+            } else if let groupID, let g = space.groups.firstIndex(where: { $0.id == groupID }) {
+                var ids = orderedTabIDs(space.groups[g])
+                ids.move(fromOffsets: from, toOffset: to)
+                space.groups[g].tabIDs = ids
+            } else if groupID == nil {
+                space.looseTabIDs.move(fromOffsets: from, toOffset: to)
+            }
+        }
+    }
+
     func returnToPin(_ tabID: UUID) {
         guard let tab = tabs[tabID], let url = tab.pinnedURL else { return }
         tab.load(url)

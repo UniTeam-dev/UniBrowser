@@ -36,6 +36,7 @@ struct TabsSheet: View {
                 if !space.pinnedTabIDs.isEmpty {
                     Section("Закреплённые") {
                         ForEach(space.pinnedTabIDs, id: \.self) { row($0) }
+                            .onMove { store.reorder(group: nil, pinned: true, from: $0, to: $1) }
                     }
                 }
 
@@ -43,6 +44,7 @@ struct TabsSheet: View {
                     Section {
                         if group.isExpanded {
                             ForEach(store.orderedTabIDs(group), id: \.self) { row($0) }
+                                .onMove { store.reorder(group: group.id, from: $0, to: $1) }
                         }
                     } header: {
                         Button {
@@ -61,6 +63,7 @@ struct TabsSheet: View {
 
                 Section("Сегодня") {
                     ForEach(space.looseTabIDs, id: \.self) { row($0) }
+                        .onMove { store.reorder(group: nil, from: $0, to: $1) }
                 }
             }
             .navigationTitle(store.activeSpace.name)
