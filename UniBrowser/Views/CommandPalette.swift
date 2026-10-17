@@ -47,6 +47,7 @@ struct CommandPalette: View {
             .command("Карта вкладок", shortcut: "⌘⇧M") { model.openTabMap() },
             .command("Вечерняя уборка", shortcut: nil) { model.startCleanup() },
             .command("Расширения", shortcut: "⌘⇧E") { model.isExtensionsVisible = true },
+            .command("Пароли UniBrowser", shortcut: "⌘⇧P") { model.isPasswordsVisible = true },
             .command("Новая группа", shortcut: "⌘⇧G") { store.newGroup(named: q.isEmpty ? "Новая группа" : query) },
             .command("Новое пространство", shortcut: nil) { store.newSpace(named: q.isEmpty ? "Пространство \(store.spaces.count + 1)" : query) },
         ]

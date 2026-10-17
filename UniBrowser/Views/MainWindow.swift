@@ -33,6 +33,9 @@ struct MainWindow: View {
         .sheet(isPresented: Bindable(model).isExtensionsVisible) {
             ExtensionsView(manager: store.environment.extensions)
         }
+        .sheet(isPresented: Bindable(model).isPasswordsVisible) {
+            PasswordsManagerView(store: model.passwords.fallback)
+        }
         .overlay {
             if model.isTabMapVisible {
                 TabMapView()

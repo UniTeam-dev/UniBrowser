@@ -31,6 +31,8 @@ struct BrowserCommands: Commands {
             Divider()
             Button("Расширения…") { model.isExtensionsVisible = true }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
+            Button("Пароли UniBrowser…") { model.isPasswordsVisible = true }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             Button("Подключить «Пароли»…") { Task { await model.passwords.apple.beginPairing() } }
                 .disabled(model.passwords.apple.state == .connected)
             Divider()

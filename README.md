@@ -38,6 +38,9 @@ Then pick your team under Signing & Capabilities and run (⌘R).
   duplicates, group loose tabs by site.
 - Evening cleanup: after 18:00, loose tabs unused for 12+ hours one by one,
   ← archive / → keep.
+- Passwords manager (⌘⇧P): UniBrowser's own logins in the login keychain —
+  view, reveal, copy, edit, delete, add by hand. Autofill and the save prompt
+  already use this store; `scripts/keychain_check.swift` round-trips the queries.
 - Web extensions (⌘⇧E): install an unpacked folder (or drop it on the app icon)
   or a Chrome Web Store link/ID; content scripts, toolbar buttons with popups and
   badges, a permission prompt at install, enable/remove.
