@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	No App Sandbox for now: the Apple Passwords bridge launches the system
+	PasswordManagerBrowserExtensionHelper as a child process, the same way
+	Chrome and Firefox do. Revisit before any Mac App Store build.
+	-->
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

@@ -1,0 +1,26 @@
+name: UniBrowser
+options:
+  bundleIdPrefix: app.unibrowser
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  UniBrowser:
+    type: application
+    platform: macOS
+    sources:
+      - path: UniBrowser
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.unibrowser.UniBrowser
+        INFOPLIST_FILE: UniBrowser/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: UniBrowser/Resources/UniBrowser.entitlements
+        CODE_SIGN_STYLE: Automatic
+        # Swift 6 strict concurrency is on; UI types are @MainActor.
+        SWIFT_STRICT_CONCURRENCY: complete
+        ENABLE_HARDENED_RUNTIME: YES
