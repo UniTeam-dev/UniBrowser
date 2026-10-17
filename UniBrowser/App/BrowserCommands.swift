@@ -27,6 +27,9 @@ struct BrowserCommands: Commands {
             Button("Обновить") { model.store.selectedTab?.webView?.reload() }
                 .keyboardShortcut("r")
             Divider()
+            Button("Подключить «Пароли»…") { Task { await model.passwords.apple.beginPairing() } }
+                .disabled(model.passwords.apple.state == .connected)
+            Divider()
             Button("Закрепить вкладку") {
                 if let id = model.store.activeSpace.selectedTabID { model.store.togglePin(id) }
             }

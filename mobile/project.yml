@@ -1,0 +1,29 @@
+name: UniBrowserMobile
+options:
+  bundleIdPrefix: app.unibrowser
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  UniBrowserMobile:
+    type: application
+    platform: iOS
+    sources:
+      - path: UniBrowserMobile
+      # Shared with the macOS app: spaces, groups and the palette.
+      # Read-only from here; changes go through the macOS side.
+      - path: ../UniBrowser/Models/Space.swift
+        group: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.unibrowser.UniBrowserMobile
+        INFOPLIST_FILE: UniBrowserMobile/Resources/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        # Swift 6 strict concurrency is on; UI types are @MainActor.
+        SWIFT_STRICT_CONCURRENCY: complete

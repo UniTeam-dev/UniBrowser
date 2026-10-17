@@ -21,6 +21,12 @@ struct MainWindow: View {
                 CommandPalette(mode: mode)
             }
         }
+        .sheet(isPresented: Binding(
+            get: { model.passwords.apple.state == .awaitingPIN },
+            set: { if !$0 { model.passwords.apple.cancelPairing() } }
+        )) {
+            PairingSheet()
+        }
         .overlay {
             if let index = model.switcherIndex {
                 TabSwitcherView(highlighted: index)

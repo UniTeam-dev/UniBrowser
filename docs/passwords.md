@@ -16,7 +16,7 @@ app (iCloud Keychain), like Safari does.
 
 ## The plan
 
-1. **Native bridge to the Passwords helper.** The helper ships with macOS at
+1. **Native bridge to the Passwords helper (written).** The helper ships with macOS at
    `/System/Cryptexes/App/System/Library/CoreServices/PasswordManagerBrowserExtensionHelper.app`.
    A browser launches it as a child process and talks native-messaging framing
    (32-bit little-endian length + JSON) over stdin/stdout. The session starts
@@ -45,9 +45,18 @@ app (iCloud Keychain), like Safari does.
 
 ## Code
 
-- `Passwords/ApplePasswordsProvider.swift`: probe + `HelperChannel` transport. The
-  pairing and get/save message layer is the next step.
+- `Passwords/PasswordsSRP.swift`: SRP-6a pairing (RFC 5054 3072-bit group, SHA-256)
+  and AES-128-GCM message encryption, written from the protocol as documented by
+  the open-source apw/apwlib projects (no code copied).
+- `Passwords/ApplePasswordsProvider.swift`: launches the helper, pairs with the
+  PIN, and sends get (`cmd 5`) and save (`cmd 6`) requests. Pairing lasts for the
+  app session; the helper never re-authenticates a known client.
+- `Views/PairingSheet.swift`: the 6-digit code sheet (menu Вкладки → Подключить «Пароли»…).
 - `Passwords/KeychainCredentialProvider.swift`: the stopgap store.
 - `Web/LoginFormScript.swift`: finds login forms and captures submits, in an
   isolated JS world so pages can't read or spoof it.
-- `Views/PasswordBar.swift`: "Войти как …" and "Сохранить пароль?" bars.
+- `Views/PasswordBar.swift`: "Войти как …", "Сохранить пароль?" and "Подключить «Пароли»" bars.
+
+Until UniBrowser is on Apple's list, macOS kills the helper at launch and the
+provider reports `notAllowlisted`; logins then go to the keychain stopgap.
+Steps to get listed: docs/apple-developer.md.

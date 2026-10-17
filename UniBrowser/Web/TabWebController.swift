@@ -31,6 +31,7 @@ extension TabWebController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.loginOffers = []
         tab?.pendingSave = nil
+        tab?.hasLoginForm = false
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -77,6 +78,7 @@ extension TabWebController: WKScriptMessageHandler {
 
         switch action {
         case "formFound":
+            tab.hasLoginForm = true
             Task {
                 let offers = (try? await environment.passwords.credentials(for: host)) ?? []
                 tab.loginOffers = offers

@@ -20,6 +20,8 @@ final class BrowserTab: Identifiable {
     var loginOffers: [Credential] = []
     /// A login the user just submitted that is not saved yet.
     var pendingSave: Credential?
+    /// The page has a visible password field.
+    var hasLoginForm = false
 
     @ObservationIgnored private(set) var webView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
