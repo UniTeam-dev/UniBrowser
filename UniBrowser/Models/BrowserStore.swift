@@ -419,6 +419,9 @@ final class BrowserStore {
         spaces = remote.spaces.map { space in
             var space = space
             if let mine = local[space.id] {
+                // An older peer drops fields it doesn't know: absent never clears what is here.
+                if space.imageData == nil { space.imageData = mine.imageData }
+                if space.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { space.name = mine.name }
                 if let selected = mine.selectedTabID, space.allTabIDs.contains(selected) { space.selectedTabID = selected }
                 if let split = mine.split, space.allTabIDs.contains(split.left), space.allTabIDs.contains(split.right) {
                     space.split = split
