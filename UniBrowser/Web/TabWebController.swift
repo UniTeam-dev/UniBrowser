@@ -31,6 +31,8 @@ extension TabWebController: WKNavigationDelegate {
             environment?.store?.newTab(url: url, select: false)
             return (.cancel, preferences)
         }
+        // «Рендеринг» → «Отключить JavaScript»; injected scripts (devtools.js) still run.
+        if tab?.devTools?.rendering.isJavaScriptDisabled == true { preferences.allowsContentJavaScript = false }
         return (.allow, preferences)
     }
 
