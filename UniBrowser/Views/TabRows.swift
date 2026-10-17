@@ -97,12 +97,6 @@ struct TabRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
                 }
-                if tab.isAwayFromPin {
-                    Button { store.returnToPin(tab.id) } label: { Text("📌").font(.system(size: 11)) }
-                        .buttonStyle(.plain)
-                        .help("Вернуть на закреплённую страницу")
-                        .accessibilityLabel("Вернуть на закреплённую страницу")
-                }
                 if tab.isPlayingAudio {
                     Image(systemName: "speaker.wave.2")
                         .foregroundStyle(Palette.accent)
@@ -115,6 +109,13 @@ struct TabRow: View {
                         .accessibilityLabel("Закрыть вкладку")
                 } else if tab.isAsleep && !isSelected {
                     Text("спит").font(.system(size: 11)).foregroundStyle(Color(hex: "#8E8E93"))
+                }
+                // Last, so the hover close button appears beside it instead of in its place.
+                if tab.isAwayFromPin {
+                    Button { store.returnToPin(tab.id) } label: { Text("📌").font(.system(size: 11)) }
+                        .buttonStyle(.plain)
+                        .help("Вернуть на закреплённую страницу")
+                        .accessibilityLabel("Вернуть на закреплённую страницу")
                 }
             }
             .padding(.horizontal, 8)
