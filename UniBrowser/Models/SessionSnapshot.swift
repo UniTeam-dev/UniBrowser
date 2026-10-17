@@ -1,8 +1,8 @@
 import Foundation
 
 /// The serialized browser session: spaces, tabs, selection and archive.
-/// This is both the on-disk format (session.json) and the wire format mirrored
-/// through iCloud, so the iOS app must encode/decode the same shape to sync.
+/// This is both the on-disk format (session.json) and the wire format of the
+/// live mirror with the iPhone (Shared/ViaMac), which compiles this same file.
 struct SessionSnapshot: Codable {
     struct TabRecord: Codable {
         var id: UUID

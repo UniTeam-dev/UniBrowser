@@ -13,6 +13,20 @@ final class MobileStore {
 
     @ObservationIgnored let environment: MobileWebEnvironment
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// Called with every saved session; in the via-Mac mode the link mirrors it to the Mac.
+    @ObservationIgnored var onLocalChange: ((SessionSnapshot) -> Void)?
+    /// Last snapshot time saved or applied, for last-writer-wins.
+    @ObservationIgnored private(set) var lastModified = Date.distantPast
+    @ObservationIgnored private var archive: [ArchivedTab] = []
+
+    /// Stable per-install id, stamped on every snapshot this phone writes.
+    static let deviceID: String = {
+        let key = "deviceID"
+        if let existing = UserDefaults.standard.string(forKey: key) { return existing }
+        let new = UUID().uuidString
+        UserDefaults.standard.set(new, forKey: key)
+        return new
+    }()
 
     init(mode: BrowsingMode, environment: MobileWebEnvironment) {
         self.mode = mode
@@ -23,6 +37,8 @@ final class MobileStore {
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
                 ($0.id, MobileTab(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated))
             })
+            archive = snapshot.archive ?? []
+            lastModified = snapshot.modifiedAt ?? .distantPast
         } else {
             let first: Space
             var rest: [Space] = []
@@ -210,19 +226,80 @@ final class MobileStore {
         return components.url
     }
 
-    // MARK: - Persistence
+    // MARK: - Mirror
 
-    private struct Snapshot: Codable {
-        struct TabRecord: Codable {
-            var id: UUID
-            var url: URL?
-            var title: String
-            var lastActivated: Date
-        }
-        var spaces: [Space]
-        var activeSpaceID: UUID
-        var tabs: [TabRecord]
+    func currentSnapshot() -> SessionSnapshot {
+        snapshot(modifiedAt: lastModified)
     }
+
+    private func snapshot(modifiedAt: Date) -> SessionSnapshot {
+        SessionSnapshot(
+            spaces: spaces,
+            activeSpaceID: activeSpaceID,
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) },
+            archive: archive,
+            modifiedAt: modifiedAt,
+            deviceID: Self.deviceID
+        )
+    }
+
+    /// Takes in the Mac's session. Tabs that stay keep their pages; the tab on
+    /// screen keeps its own address. The phone's space and selection stay put.
+    /// `force` applies it even if it is not newer (the Mac's merge answer).
+    func applyMirror(_ remote: SessionSnapshot, force: Bool = false) {
+        guard let remoteTime = remote.modifiedAt, force || remoteTime > lastModified else { return }
+        saveTask?.cancel()
+        let visible = activeSpace.selectedTabID
+        let local = Dictionary(spaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        var updated: [UUID: MobileTab] = [:]
+        for record in remote.tabs {
+            if let tab = tabs[record.id] {
+                if let url = record.url, url != tab.url {
+                    if tab.webView == nil {
+                        tab.url = url
+                        tab.title = record.title
+                    } else if tab.id != visible {
+                        tab.load(url)
+                    }
+                } else if tab.webView == nil {
+                    tab.title = record.title
+                }
+                tab.lastActivated = max(tab.lastActivated, record.lastActivated)
+                updated[record.id] = tab
+            } else {
+                updated[record.id] = MobileTab(id: record.id, url: record.url, title: record.title, lastActivated: record.lastActivated)
+            }
+        }
+        for (id, tab) in tabs where updated[id] == nil { tab.sleep() }
+        tabs = updated
+
+        spaces = remote.spaces.map { space in
+            var space = space
+            // Split View is a Mac thing; the phone shows one page.
+            if let mine = local[space.id] {
+                if let selected = mine.selectedTabID, space.allTabIDs.contains(selected) { space.selectedTabID = selected }
+                for g in space.groups.indices {
+                    if let group = mine.groups.first(where: { $0.id == space.groups[g].id }) {
+                        space.groups[g].isExpanded = group.isExpanded
+                    }
+                }
+            }
+            return space
+        }
+        if spaces.isEmpty {
+            let first = Space(name: "Через Mac", colorHex: Palette.spaceColors[3])
+            spaces = [first]
+        }
+        if !spaces.contains(where: { $0.id == activeSpaceID }) {
+            activeSpaceID = spaces.contains { $0.id == remote.activeSpaceID } ? remote.activeSpaceID : spaces[0].id
+        }
+        archive = remote.archive ?? []
+        lastModified = remoteTime
+        writeToDisk(snapshot(modifiedAt: remoteTime))
+    }
+
+    // MARK: - Persistence
 
     private static func snapshotURL(for mode: BrowsingMode) -> URL {
         let dir = URL.applicationSupportDirectory.appending(path: "UniBrowser", directoryHint: .isDirectory)
@@ -230,9 +307,9 @@ final class MobileStore {
         return dir.appending(path: "session-\(mode.rawValue).json")
     }
 
-    private static func loadSnapshot(for mode: BrowsingMode) -> Snapshot? {
+    private static func loadSnapshot(for mode: BrowsingMode) -> SessionSnapshot? {
         guard let data = try? Data(contentsOf: snapshotURL(for: mode)) else { return nil }
-        return try? JSONDecoder().decode(Snapshot.self, from: data)
+        return try? JSONDecoder().decode(SessionSnapshot.self, from: data)
     }
 
     /// Debounced so a burst of changes writes the session file once.
@@ -246,11 +323,16 @@ final class MobileStore {
     }
 
     func saveNow() {
-        let snapshot = Snapshot(
-            spaces: spaces,
-            activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) }
-        )
+        // Always later than the last applied session, so a change made after
+        // taking the Mac's version wins even if the Mac's clock is ahead.
+        let now = max(Date.now, lastModified.addingTimeInterval(0.001))
+        lastModified = now
+        let snapshot = snapshot(modifiedAt: now)
+        writeToDisk(snapshot)
+        onLocalChange?(snapshot)
+    }
+
+    private func writeToDisk(_ snapshot: SessionSnapshot) {
         if let data = try? JSONEncoder().encode(snapshot) {
             try? data.write(to: Self.snapshotURL(for: mode), options: .atomic)
         }
@@ -258,6 +340,7 @@ final class MobileStore {
 
     /// Erases the mode's tabs; used by "Стереть данные" in the via-Mac settings.
     func removeAllTabs() {
+        saveTask?.cancel()
         for tab in tabs.values { tab.sleep() }
         tabs = [:]
         for index in spaces.indices {
@@ -266,6 +349,8 @@ final class MobileStore {
             spaces[index].looseTabIDs = []
             spaces[index].selectedTabID = nil
         }
-        saveNow()
+        // Not mirrored: the Mac keeps its tabs and sends them back on the next connection.
+        lastModified = .distantPast
+        writeToDisk(snapshot(modifiedAt: lastModified))
     }
 }

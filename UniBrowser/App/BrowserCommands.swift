@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BrowserCommands: Commands {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -35,6 +36,8 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             Button("Подключить «Пароли»…") { Task { await model.passwords.apple.beginPairing() } }
                 .disabled(model.passwords.apple.state == .connected)
+            Button("iPhone…") { openWindow(id: "iphone") }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
             Divider()
             Button("Закрепить вкладку") {
                 if let id = model.store.activeSpace.selectedTabID { model.store.togglePin(id) }

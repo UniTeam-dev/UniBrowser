@@ -9,14 +9,6 @@
 	-->
 	<key>com.apple.security.network.client</key>
 	<true/>
-	<!--
-	iCloud session mirror (SyncService): to enable it, sign with a real Team and add,
-	in Xcode ▸ Signing & Capabilities, the iCloud capability with CloudKit and the
-	container iCloud.app.unibrowser.UniBrowser (which adds the two keys below). They are
-	left out here because they need a development certificate and would break the ad-hoc
-	build; without them the app runs local-only (sync status "iCloud недоступен").
-		com.apple.developer.icloud-services            = [ CloudKit ]
-		com.apple.developer.icloud-container-identifiers = [ iCloud.app.unibrowser.UniBrowser ]
-	-->
+	<!-- The iPhone link (ViaMac) accepts the phone's connections; no sandbox, so no server entitlement is needed. -->
 </dict>
 </plist>

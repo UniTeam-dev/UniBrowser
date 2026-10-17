@@ -2,23 +2,39 @@ name: UniBrowserMobile
 options:
   bundleIdPrefix: app.unibrowser
   deploymentTarget:
-    iOS: "17.0"
+    # IrohLib (the link to the Mac) needs iOS 17.5.
+    iOS: "17.5"
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: "6.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+packages:
+  IrohLib:
+    # QUIC tunnel with NAT traversal and relays for the link to the Mac.
+    url: https://github.com/n0-computer/iroh-ffi
+    exactVersion: 1.1.0
 targets:
   UniBrowserMobile:
     type: application
     platform: iOS
     sources:
       - path: UniBrowserMobile
-      # Shared with the macOS app: spaces, groups and the palette.
-      # Read-only from here; changes go through the macOS side.
+      # Shared with the macOS app. Read-only from here; changes go through the macOS side.
+      # Spaces, groups and the palette:
       - path: ../UniBrowser/Models/Space.swift
         group: Shared
+      # The session format the two apps mirror:
+      - path: ../UniBrowser/Models/SessionSnapshot.swift
+        group: Shared
+      # Finds login forms and fills saved passwords:
+      - path: ../UniBrowser/Web/LoginFormScript.swift
+        group: Shared
+      # The link's protocol, transport and merge:
+      - path: ../Shared/ViaMac
+    dependencies:
+      - package: IrohLib
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.unibrowser.UniBrowserMobile

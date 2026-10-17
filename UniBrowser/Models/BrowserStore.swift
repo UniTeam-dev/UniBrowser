@@ -13,14 +13,12 @@ final class BrowserStore {
 
     @ObservationIgnored let environment: WebEnvironment
     @ObservationIgnored private var saveTask: Task<Void, Never>?
-    /// iCloud mirror; nil when sync is off. Set up in init.
-    @ObservationIgnored let sync: SyncService?
+    /// Called with every saved session; the iPhone link mirrors it to the phone.
+    @ObservationIgnored var onLocalChange: ((SessionSnapshot) -> Void)?
     /// Last snapshot time applied or saved, for last-writer-wins.
-    @ObservationIgnored private var lastModified = Date.distantPast
-    /// Guards against re-pushing a snapshot we just received from another device.
-    @ObservationIgnored private var isApplyingRemote = false
+    @ObservationIgnored private(set) var lastModified = Date.distantPast
 
-    /// Stable per-install id so a device ignores the echo of its own iCloud push.
+    /// Stable per-install id, stamped on every snapshot this Mac writes.
     static let deviceID: String = {
         let key = "deviceID"
         if let existing = UserDefaults.standard.string(forKey: key) { return existing }
@@ -29,9 +27,8 @@ final class BrowserStore {
         return new
     }()
 
-    init(environment: WebEnvironment, sync: SyncService? = SyncService(containerIdentifier: "iCloud.app.unibrowser.UniBrowser")) {
+    init(environment: WebEnvironment) {
         self.environment = environment
-        self.sync = sync
         if let snapshot = Self.loadSnapshot() {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
@@ -50,19 +47,6 @@ final class BrowserStore {
         environment.store = self
         environment.extensions.store = self
         Task { await environment.extensions.loadAll() }
-
-        sync?.onRemote = { [weak self] snapshot in self?.applyRemote(snapshot) }
-        if let sync {
-            Task {
-                await sync.start()
-                sync.push(self.snapshot()) // seed the first mirror for a new iCloud account
-            }
-        }
-    }
-
-    /// Pulls again when the window becomes active, so switching back to a device catches up.
-    func syncOnActivate() {
-        Task { await sync?.pull() }
     }
 
     // MARK: - Lookup
@@ -378,21 +362,75 @@ final class BrowserStore {
         )
     }
 
-    /// Replaces local state with another device's snapshot when it is newer. Live tabs are
-    /// put to sleep and rebuilt, so the selected page reloads — acceptable for a mirror.
-    private func applyRemote(_ remote: SessionSnapshot) {
-        guard remote.deviceID != Self.deviceID else { return } // our own echo
-        guard let remoteTime = remote.modifiedAt, remoteTime > lastModified else { return }
+    /// The session as last saved or applied, stamped with that time.
+    func currentSnapshot() -> SessionSnapshot {
+        snapshot(modifiedAt: lastModified)
+    }
 
-        isApplyingRemote = true
-        defer { isApplyingRemote = false }
-        tabs.values.forEach { $0.sleep() }
-        spaces = remote.spaces
-        activeSpaceID = remote.spaces.contains { $0.id == remote.activeSpaceID } ? remote.activeSpaceID : (remote.spaces.first?.id ?? remote.activeSpaceID)
+    /// Takes in a newer session from the paired iPhone. Tabs that stay keep their
+    /// live pages; a background tab follows a new address, the tab on screen keeps
+    /// its own. This window's space, selected tabs and split stay as they are.
+    func applyMirror(_ remote: SessionSnapshot) {
+        guard let remoteTime = remote.modifiedAt, remoteTime > lastModified else { return }
+        saveTask?.cancel()
+        let visible = Set([activeSpace.selectedTabID, activeSpace.split?.left, activeSpace.split?.right].compactMap { $0 })
+        let local = Dictionary(spaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        var updated: [UUID: BrowserTab] = [:]
+        for record in remote.tabs {
+            if let tab = tabs[record.id] {
+                if let url = record.url, url != tab.url {
+                    if tab.isAsleep {
+                        tab.url = url
+                        tab.title = record.title
+                    } else if !visible.contains(tab.id) {
+                        tab.load(url)
+                    }
+                } else if tab.isAsleep {
+                    tab.title = record.title
+                }
+                tab.lastActivated = max(tab.lastActivated, record.lastActivated)
+                updated[record.id] = tab
+            } else {
+                let tab = BrowserTab(id: record.id, url: record.url, title: record.title, lastActivated: record.lastActivated)
+                updated[record.id] = tab
+                environment.extensions.tabOpened(tab)
+            }
+        }
+        for (id, tab) in tabs where updated[id] == nil {
+            environment.extensions.tabClosed(id)
+            tab.sleep()
+        }
+        tabs = updated
+
+        spaces = remote.spaces.map { space in
+            var space = space
+            if let mine = local[space.id] {
+                if let selected = mine.selectedTabID, space.allTabIDs.contains(selected) { space.selectedTabID = selected }
+                if let split = mine.split, space.allTabIDs.contains(split.left), space.allTabIDs.contains(split.right) {
+                    space.split = split
+                } else if let split = space.split, !(space.allTabIDs.contains(split.left) && space.allTabIDs.contains(split.right)) {
+                    space.split = nil
+                }
+                for g in space.groups.indices {
+                    if let group = mine.groups.first(where: { $0.id == space.groups[g].id }) {
+                        space.groups[g].isExpanded = group.isExpanded
+                    }
+                }
+            } else {
+                space.split = nil
+            }
+            return space
+        }
+        if !spaces.contains(where: { $0.id == activeSpaceID }) {
+            activeSpaceID = spaces.first?.id ?? activeSpaceID
+        }
+        if spaces.isEmpty {
+            let work = Space(name: "Работа", colorHex: Palette.spaceColors[0])
+            spaces = [work]
+            activeSpaceID = work.id
+        }
         archive = remote.archive ?? []
-        tabs = Dictionary(uniqueKeysWithValues: remote.tabs.map {
-            ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated))
-        })
         lastModified = remoteTime
         writeToDisk(snapshot(modifiedAt: remoteTime))
     }
@@ -421,12 +459,13 @@ final class BrowserStore {
     }
 
     func saveNow() {
-        guard !isApplyingRemote else { return } // don't bump time / re-push a remote apply
-        let now = Date.now
+        // Always later than the last applied session, so a change made after
+        // taking the iPhone's version wins even if the phone's clock is ahead.
+        let now = max(Date.now, lastModified.addingTimeInterval(0.001))
         lastModified = now
         let snapshot = snapshot(modifiedAt: now)
         writeToDisk(snapshot)
-        sync?.push(snapshot)
+        onLocalChange?(snapshot)
     }
 
     private func writeToDisk(_ snapshot: SessionSnapshot) {

@@ -19,6 +19,13 @@ struct UniBrowserApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .commands { BrowserCommands(model: model) }
+
+        Window("iPhone", id: "iphone") {
+            ViaMacWindow()
+                .environment(model.viaMac)
+                .preferredColorScheme(.light)
+        }
+        .windowResizability(.contentSize)
     }
 }
 
@@ -27,10 +34,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { model?.store.saveNow() }
-    }
-
-    func applicationDidBecomeActive(_ notification: Notification) {
-        MainActor.assumeIsolated { model?.store.syncOnActivate() }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

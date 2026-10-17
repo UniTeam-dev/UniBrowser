@@ -23,12 +23,12 @@ struct ViaMacBanner: View {
     }
 
     private var message: String? {
-        if relay.workDomains.isEmpty { return "Добавьте рабочие домены, которые нужно открывать через Mac." }
         switch relay.status {
-        case .connected: return nil
-        case .connecting: return "Подключаюсь к Mac…"
         case .notPaired: return "Mac не подключён, рабочие сайты не откроются."
+        case .connecting: return "Подключаюсь к Mac…"
         case .unreachable(let reason): return reason
+        case .connected:
+            return relay.workDomains.isEmpty ? "Добавьте рабочие домены, которые нужно открывать через Mac." : nil
         }
     }
 }
@@ -37,20 +37,47 @@ struct ViaMacSettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var newDomain = ""
+    @State private var pairingLink = ""
+    @State private var isPairing = false
     @State private var confirmErase = false
+    @State private var confirmUnpair = false
 
     var body: some View {
         let relay = model.relay
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("Состояние", value: statusText)
-                    Button("Сопрячь с Mac по QR-коду", systemImage: "qrcode.viewfinder") {}
-                        .disabled(true)
+                    if let mac = relay.pairedMac {
+                        LabeledContent("Mac", value: mac.name)
+                        LabeledContent("Связь", value: statusText)
+                        LabeledContent("Вкладки", value: relay.isSyncing ? "Синхронизируются" : "Ждут связи с Mac")
+                        LabeledContent("Пароли", value: "\(model.passwords.all.count)")
+                        if case .unreachable = relay.status {
+                            Button("Переподключиться", systemImage: "arrow.clockwise") { relay.reconnectNow() }
+                        }
+                        Button("Отвязать Mac", systemImage: "link.badge.minus", role: .destructive) {
+                            confirmUnpair = true
+                        }
+                    } else {
+                        Text("На Mac в UniBrowser откройте меню «Вкладки» → «iPhone…» (⇧⌘I), включите «Связь с iPhone» и нажмите «Показать QR-код». Наведите на него камеру iPhone и откройте ссылку в UniBrowser.")
+                            .font(.callout)
+                        TextField("…или вставьте скопированный код", text: $pairingLink, axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button {
+                            pair(pairingLink)
+                        } label: {
+                            if isPairing { ProgressView() } else { Text("Подключить") }
+                        }
+                        .disabled(pairingLink.isEmpty || isPairing)
+                    }
+                    if let error = relay.lastError {
+                        Text(error).font(.footnote).foregroundStyle(.red)
+                    }
                 } header: {
                     Text("Mac")
                 } footer: {
-                    Text("Сопряжение и туннель до Mac появятся на следующем этапе.")
+                    Text("Вкладки, группы и пространства режима «Через Mac» — это вкладки вашего Mac: изменения с обеих сторон видны сразу, а после разлуки объединяются. Сохранённые пароли UniBrowser приходят с Mac. Работает и в одной Wi-Fi, и через мобильный интернет. Mac должен быть включён, не спать и быть в корпоративном VPN.")
                 }
 
                 Section {
@@ -76,7 +103,7 @@ struct ViaMacSettingsView: View {
                         confirmErase = true
                     }
                 } footer: {
-                    Text("Удаляет вкладки, cookie и кэш режима «Через Mac». Обычный режим не затрагивается.")
+                    Text("Удаляет с телефона копию вкладок, пароли с Mac, cookie и кэш режима «Через Mac». На Mac ничего не удаляется. Обычный режим не затрагивается.")
                 }
             }
             .navigationTitle("Через Mac")
@@ -91,6 +118,13 @@ struct ViaMacSettingsView: View {
                     Task { await model.eraseViaMacData() }
                 }
             }
+            .confirmationDialog("Отвязать Mac?", isPresented: $confirmUnpair, titleVisibility: .visible) {
+                Button("Отвязать", role: .destructive) {
+                    Task { await relay.unpair() }
+                }
+            } message: {
+                Text("Чтобы подключиться снова, понадобится новый QR-код с Mac.")
+            }
         }
     }
 
@@ -98,8 +132,8 @@ struct ViaMacSettingsView: View {
         switch model.relay.status {
         case .notPaired: "Не сопряжён"
         case .connecting: "Подключение…"
-        case .connected(.direct): "Подключён напрямую"
-        case .connected(.relay): "Подключён через реле"
+        case .connected(.direct): "Напрямую"
+        case .connected(.relay): "Через реле"
         case .unreachable: "Недоступен"
         }
     }
@@ -107,5 +141,14 @@ struct ViaMacSettingsView: View {
     private func addDomain() {
         model.relay.addDomain(newDomain)
         newDomain = ""
+    }
+
+    private func pair(_ link: String) {
+        isPairing = true
+        Task {
+            await model.relay.pair(using: link)
+            isPairing = false
+            if model.relay.pairedMac != nil { pairingLink = "" }
+        }
     }
 }

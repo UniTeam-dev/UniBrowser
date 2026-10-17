@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// The phone's version of the macOS sidebar: spaces on top, then pinned tabs,
-/// folder groups and "Сегодня".
+/// folder groups and "Сегодня". In the via-Mac mode these are the Mac's own tabs.
 struct TabsSheet: View {
     let store: MobileStore
+    /// Set in the via-Mac mode, to show whether the mirror is live.
+    var relay: MacRelay?
     @Environment(\.dismiss) private var dismiss
     @State private var newGroupName = ""
     @State private var isNamingGroup = false
@@ -11,6 +13,12 @@ struct TabsSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if let relay {
+                    Label(syncText(relay), systemImage: relay.isSyncing ? "arrow.triangle.2.circlepath" : "laptopcomputer.slash")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .listRowBackground(Color.clear)
+                }
                 if store.spaces.count > 1 {
                     Picker("Пространство", selection: Binding(get: { store.activeSpaceID }, set: { store.switchToSpace($0) })) {
                         ForEach(store.spaces) { space in
@@ -78,6 +86,12 @@ struct TabsSheet: View {
                 Button("Отмена", role: .cancel) { newGroupName = "" }
             }
         }
+    }
+
+    private func syncText(_ relay: MacRelay) -> String {
+        guard let mac = relay.pairedMac else { return "Mac не подключён: вкладки только на телефоне" }
+        if relay.isSyncing { return "Вкладки синхронизируются с «\(mac.name)»" }
+        return "Нет связи с «\(mac.name)»: изменения уйдут на Mac при подключении"
     }
 
     @ViewBuilder

@@ -9,8 +9,22 @@ struct UniBrowserMobileApp: App {
         WindowGroup {
             BrowserScreen()
                 .environment(model)
-                .onChange(of: scenePhase) { _, phase in
-                    if phase == .background { model.saveAll() }
+                // The Mac's QR code is a unibrowser://pair link; the Camera opens it here.
+                .onOpenURL { url in
+                    guard url.scheme == PairingPayload.scheme else { return }
+                    model.switchMode(to: .viaMac)
+                    Task { await model.relay.pair(using: url.absoluteString) }
+                }
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    switch phase {
+                    case .active:
+                        model.relay.appBecameActive()
+                    case .background:
+                        model.saveAll()
+                        model.relay.appWentToBackground()
+                    default:
+                        break
+                    }
                 }
         }
     }

@@ -15,6 +15,10 @@ final class MobileTab: Identifiable {
     var canGoBack = false
     var canGoForward = false
     var lastActivated: Date
+    /// Saved logins for this page's site, shown as a bar above the page.
+    var loginOffers: [SyncedCredential] = []
+    /// A login the user just submitted that is not saved yet.
+    var pendingSave: SyncedCredential?
 
     @ObservationIgnored private(set) var webView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
@@ -36,8 +40,8 @@ final class MobileTab: Identifiable {
     func wake(environment: MobileWebEnvironment) -> WKWebView {
         if let webView { return webView }
 
-        let controller = MobileTabController(environment: environment)
-        let webView = WKWebView(frame: .zero, configuration: environment.makeConfiguration())
+        let controller = MobileTabController(tab: self, environment: environment)
+        let webView = WKWebView(frame: .zero, configuration: environment.makeConfiguration(for: controller))
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = controller
         webView.uiDelegate = controller
@@ -78,6 +82,18 @@ final class MobileTab: Identifiable {
         webView = nil
         controller = nil
         isLoading = false
+    }
+
+    func fill(_ credential: SyncedCredential) {
+        guard let webView else { return }
+        webView.callAsyncJavaScript(
+            "return window.__unibrowserFill && window.__unibrowserFill(username, password);",
+            arguments: ["username": credential.username, "password": credential.password],
+            in: nil,
+            in: LoginFormScript.world,
+            completionHandler: nil
+        )
+        loginOffers = []
     }
 
     func load(_ url: URL) {

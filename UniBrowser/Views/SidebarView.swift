@@ -101,12 +101,12 @@ struct SidebarView: View {
     private var bottomBar: some View {
         HStack(spacing: 4) {
             iconButton("archivebox", label: "Архив") { model.isArchiveVisible = true }
-            if let sync = store.sync, sync.status != .disabled {
-                Image(systemName: syncSymbol(sync.status))
+            if !model.viaMac.connectedDeviceIDs.isEmpty {
+                Image(systemName: "iphone")
                     .font(.system(size: 12))
-                    .foregroundStyle(sync.status == .ok ? Palette.accent : Palette.secondaryText)
-                    .help(sync.status.label)
-                    .accessibilityLabel(sync.status.label)
+                    .foregroundStyle(Palette.accent)
+                    .help("iPhone подключён: вкладки синхронизируются")
+                    .accessibilityLabel("iPhone подключён")
             }
             Spacer()
             HStack(spacing: 10) {
@@ -136,15 +136,6 @@ struct SidebarView: View {
         }
         .padding(.top, 10)
         .overlay(alignment: .top) { Rectangle().fill(.black.opacity(0.08)).frame(height: 1) }
-    }
-
-    private func syncSymbol(_ status: SyncService.Status) -> String {
-        switch status {
-        case .ok: "checkmark.icloud"
-        case .syncing: "arrow.triangle.2.circlepath.icloud"
-        case .error: "exclamationmark.icloud"
-        default: "icloud.slash"
-        }
     }
 
     private func iconButton(_ symbol: String, label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {

@@ -8,12 +8,16 @@ struct BrowserScreen: View {
     @State private var showTabs = false
     @State private var showViaMacSettings = false
     @State private var isEditingAddress = false
+    @State private var notice: String?
 
     var body: some View {
         let store = model.store
         VStack(spacing: 0) {
             if model.mode == .viaMac {
                 ViaMacBanner(relay: model.relay) { showViaMacSettings = true }
+            }
+            if let tab = store.selectedTab {
+                PasswordBar(tab: tab, passwords: model.passwords)
             }
             ZStack(alignment: .top) {
                 if let tab = store.selectedTab, tab.url != nil {
@@ -28,18 +32,29 @@ struct BrowserScreen: View {
                 } else {
                     StartPage(mode: model.mode, space: store.activeSpace) { isEditingAddress = true }
                 }
+                if let notice {
+                    Text(notice)
+                        .font(.footnote)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
             BottomBar(
                 store: store,
                 mode: model.mode,
+                canSendToMac: model.relay.pairedMac != nil,
                 onAddress: { isEditingAddress = true },
                 onTabs: { showTabs = true },
                 onSwitchMode: { model.switchMode(to: $0) },
-                onViaMacSettings: { showViaMacSettings = true }
+                onViaMacSettings: { showViaMacSettings = true },
+                onSendToMac: sendToMac
             )
         }
         .sheet(isPresented: $showTabs) {
-            TabsSheet(store: store)
+            TabsSheet(store: store, relay: model.mode == .viaMac ? model.relay : nil)
         }
         .sheet(isPresented: $showViaMacSettings) {
             ViaMacSettingsView()
@@ -49,6 +64,21 @@ struct BrowserScreen: View {
             AddressEntry(initialText: store.selectedTab?.url?.absoluteString ?? "") { input in
                 store.open(input: input, inNewTab: store.selectedTab == nil)
             }
+        }
+    }
+
+    private func sendToMac(_ url: URL) {
+        Task {
+            let sent = await model.relay.sendToMac(url)
+            show(sent ? "Открыто на Mac" : "Mac недоступен")
+        }
+    }
+
+    private func show(_ text: String) {
+        withAnimation { notice = text }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation { if notice == text { notice = nil } }
         }
     }
 }
@@ -76,13 +106,65 @@ struct WebViewContainer: UIViewRepresentable {
     }
 }
 
+/// "Войти как …" when saved logins exist for the site, "Сохранить пароль?"
+/// after the user signs in with a new one.
+private struct PasswordBar: View {
+    let tab: MobileTab
+    let passwords: PhonePasswords
+
+    var body: some View {
+        if let pending = tab.pendingSave {
+            bar {
+                Image(systemName: "key.fill").foregroundStyle(.tint)
+                Text("Сохранить пароль для **\(pending.username.isEmpty ? pending.host : pending.username)**?")
+                    .lineLimit(2)
+                Spacer()
+                Button("Нет") { tab.pendingSave = nil }
+                Button("Сохранить") {
+                    passwords.save(pending)
+                    tab.pendingSave = nil
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } else if !tab.loginOffers.isEmpty {
+            bar {
+                Image(systemName: "key.fill").foregroundStyle(.tint)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        ForEach(tab.loginOffers) { credential in
+                            Button(credential.username.isEmpty ? "Войти" : "Войти как \(credential.username)") {
+                                tab.fill(credential)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+                Button { tab.loginOffers = [] } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Скрыть")
+            }
+        }
+    }
+
+    private func bar<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 10) { content() }
+            .font(.footnote)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
 private struct BottomBar: View {
     let store: MobileStore
     let mode: BrowsingMode
+    let canSendToMac: Bool
     let onAddress: () -> Void
     let onTabs: () -> Void
     let onSwitchMode: (BrowsingMode) -> Void
     let onViaMacSettings: () -> Void
+    let onSendToMac: (URL) -> Void
 
     var body: some View {
         let tab = store.selectedTab
@@ -122,10 +204,20 @@ private struct BottomBar: View {
                 }
                 Spacer()
                 Menu {
-                    Picker("Режим", selection: Binding(get: { mode }, set: onSwitchMode)) {
-                        ForEach(BrowsingMode.allCases) { mode in
-                            Label(mode.title, systemImage: mode.systemImage).tag(mode)
+                    Section("Режим") {
+                        ForEach(BrowsingMode.allCases) { option in
+                            Button {
+                                onSwitchMode(option)
+                            } label: {
+                                Label(option.title, systemImage: option == mode ? "checkmark" : option.systemImage)
+                            }
                         }
+                    }
+                    if let url = tab?.url, canSendToMac {
+                        Button("Открыть на Mac", systemImage: "laptopcomputer.and.arrow.down") { onSendToMac(url) }
+                    }
+                    if let url = tab?.url {
+                        ShareLink(item: url)
                     }
                     Button("Настройки «Через Mac»", systemImage: "gearshape", action: onViaMacSettings)
                     if let tab {
@@ -158,9 +250,10 @@ private struct StartPage: View {
                 .foregroundStyle(space.color)
             Text(space.name).font(.title2.bold())
             Text(mode == .viaMac
-                 ? "Рабочие сайты откроются через ваш Mac."
+                 ? "Вкладки вашего Mac. Рабочие сайты откроются через него."
                  : "Откройте сайт или найдите что-нибудь.")
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
             Button("Поиск или адрес", action: onSearch)
                 .buttonStyle(.borderedProminent)
                 .tint(space.color)
