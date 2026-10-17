@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Observation
 import WebKit
 
@@ -22,6 +22,8 @@ final class BrowserTab: Identifiable {
     var pendingSave: Credential?
     /// The page has a visible password field.
     var hasLoginForm = false
+    /// Last page snapshot, for the tab map and evening cleanup.
+    var thumbnail: NSImage?
 
     @ObservationIgnored private(set) var webView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
@@ -106,6 +108,18 @@ final class BrowserTab: Identifiable {
             completionHandler: nil
         )
         loginOffers = []
+    }
+
+    /// Snapshots the page while it is on screen; a web view outside the window draws nothing.
+    func captureThumbnail() {
+        guard let webView, webView.window != nil, !webView.bounds.isEmpty else { return }
+        let configuration = WKSnapshotConfiguration()
+        configuration.snapshotWidth = 480
+        webView.takeSnapshot(with: configuration) { [weak self] image, _ in
+            MainActor.assumeIsolated {
+                if let image { self?.thumbnail = image }
+            }
+        }
     }
 
     func load(_ url: URL) {

@@ -31,6 +31,11 @@ struct MainWindow: View {
             ArchiveView()
         }
         .overlay {
+            if model.isTabMapVisible {
+                TabMapView()
+            }
+        }
+        .overlay {
             if let page = model.peek {
                 PeekView(page: page)
             }

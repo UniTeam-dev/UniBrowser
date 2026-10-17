@@ -19,6 +19,8 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("k")
             Button("Открыть адрес") { model.openPalette(.search) }
                 .keyboardShortcut("l")
+            Button("Карта вкладок") { model.openTabMap() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
             Divider()
             Button("Назад") { model.store.selectedTab?.webView?.goBack() }
                 .keyboardShortcut("[")

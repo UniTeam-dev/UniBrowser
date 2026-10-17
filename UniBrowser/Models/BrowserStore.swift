@@ -75,6 +75,9 @@ final class BrowserStore {
 
     func select(_ tabID: UUID) {
         guard let tab = tabs[tabID] else { return }
+        if let previous = activeSpace.selectedTabID, previous != tabID {
+            tabs[previous]?.captureThumbnail()
+        }
         if let spaceIndex = spaces.firstIndex(where: { $0.allTabIDs.contains(tabID) }) {
             activeSpaceID = spaces[spaceIndex].id
             spaces[spaceIndex].selectedTabID = tabID
@@ -239,6 +242,39 @@ final class BrowserStore {
         guard let group = activeSpace.groups.first(where: { $0.id == groupID }) else { return }
         group.tabIDs.forEach(closeTab)
         mutateActiveSpace { $0.groups.removeAll { $0.id == groupID } }
+    }
+
+    // MARK: - Tab map
+
+    /// Groups first, then "Сегодня": the order the tab map shows and arrow keys follow.
+    var mapOrder: [UUID] {
+        activeSpace.groups.flatMap(\.tabIDs) + activeSpace.looseTabIDs
+    }
+
+    /// Tabs in the active space whose URL another, more recently used tab already has.
+    var duplicateTabIDs: [UUID] {
+        let byURL = Dictionary(grouping: activeSpace.allTabIDs.compactMap { tabs[$0] }) { $0.url?.absoluteString ?? "" }
+        return byURL.filter { !$0.key.isEmpty && $0.value.count > 1 }.values.flatMap { sameURL in
+            sameURL.sorted { $0.lastActivated > $1.lastActivated }.dropFirst().map(\.id)
+        }
+    }
+
+    func closeDuplicates() {
+        duplicateTabIDs.forEach(closeTab)
+    }
+
+    /// Moves loose tabs that share a site into a group named after it; a site with one tab stays loose.
+    func groupLooseTabsByHost() {
+        let byHost = Dictionary(grouping: activeSpace.looseTabIDs) { id in
+            tabs[id]?.url?.host()?.replacingOccurrences(of: "www.", with: "") ?? ""
+        }
+        for (host, ids) in byHost where !host.isEmpty && ids.count > 1 {
+            if let existing = activeSpace.groups.first(where: { $0.name == host }) {
+                ids.forEach { move($0, toGroup: existing.id) }
+            } else {
+                newGroup(named: host, with: ids)
+            }
+        }
     }
 
     // MARK: - Spaces

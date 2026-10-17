@@ -44,6 +44,7 @@ struct CommandPalette: View {
         let groups = q.isEmpty ? [] : store.activeSpace.groups.filter { matches($0.name) }
         let archived = q.isEmpty ? [] : store.archive.filter { matches($0.title) || matches($0.url?.absoluteString) }
         var commands: [Item] = [
+            .command("Карта вкладок", shortcut: "⌘⇧M") { model.openTabMap() },
             .command("Новая группа", shortcut: "⌘⇧G") { store.newGroup(named: q.isEmpty ? "Новая группа" : query) },
             .command("Новое пространство", shortcut: nil) { store.newSpace(named: q.isEmpty ? "Пространство \(store.spaces.count + 1)" : query) },
         ]

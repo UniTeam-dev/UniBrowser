@@ -17,10 +17,14 @@ final class AppModel {
     var isArchiveVisible = false
     /// The page shown over the window by ⌥+click or ⌥↵; nil when Peek is closed.
     var peek: PeekPage?
+    var isTabMapVisible = false
+    /// The ringed tab in the tab map; arrows move it, Space peeks at it, Return opens it.
+    var mapSelection: UUID?
     /// Index into `store.tabsByRecency` while Ctrl is held; nil when the switcher is closed.
     var switcherIndex: Int?
 
     @ObservationIgnored private var keyMonitor: Any?
+    @ObservationIgnored private var lastConsumedKeyTimestamp: TimeInterval = 0
 
     init() {
         let passwords = PasswordsService()
@@ -28,6 +32,44 @@ final class AppModel {
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords))
         installTabSwitcherMonitor()
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
+    }
+
+    // MARK: - Tab map
+
+    func openTabMap() {
+        store.selectedTab?.captureThumbnail()
+        if let split = store.activeSpace.split {
+            [split.left, split.right].forEach { store.tab($0)?.captureThumbnail() }
+        }
+        mapSelection = store.activeSpace.selectedTabID ?? store.mapOrder.first
+        paletteMode = nil
+        isTabMapVisible = true
+    }
+
+    func selectFromMap(_ tabID: UUID) {
+        store.select(tabID)
+        isTabMapVisible = false
+    }
+
+    private func moveMapSelection(by step: Int) {
+        let order = store.mapOrder
+        guard !order.isEmpty else { return }
+        let current = mapSelection.flatMap { order.firstIndex(of: $0) } ?? 0
+        mapSelection = order[(current + step + order.count) % order.count]
+    }
+
+    /// Keys while the tab map is open. Handled here because the page behind it keeps keyboard focus.
+    private func handleTabMapKey(_ event: NSEvent) -> NSEvent? {
+        switch event.keyCode {
+        case 53: isTabMapVisible = false // Esc
+        case 49: // Space
+            if let id = mapSelection, let url = store.tab(id)?.url { openPeek(url, sourceTabID: id) }
+        case 36, 76: if let id = mapSelection { selectFromMap(id) } // Return
+        case 123, 126: moveMapSelection(by: -1) // ← ↑
+        case 124, 125: moveMapSelection(by: 1) // → ↓
+        default: return event
+        }
+        return nil
     }
 
     // MARK: - Peek
@@ -73,7 +115,13 @@ final class AppModel {
     /// monitor sees the keys before the web view can swallow them.
     private func installTabSwitcherMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown]) { [weak self] event in
-            self?.handle(event) ?? event
+            guard let self else { return event }
+            // The same keyDown can reach a local monitor twice (seen with synthesized input);
+            // a key already consumed must not act again.
+            if event.type == .keyDown, event.timestamp == self.lastConsumedKeyTimestamp { return nil }
+            let result = self.handle(event)
+            if event.type == .keyDown, result == nil { self.lastConsumedKeyTimestamp = event.timestamp }
+            return result
         }
     }
 
@@ -110,6 +158,8 @@ final class AppModel {
         case .keyDown where event.keyCode == 53 && peek != nil:
             closePeek()
             return nil
+        case .keyDown where isTabMapVisible && peek == nil:
+            return handleTabMapKey(event)
         case .flagsChanged where switcherIndex != nil && !event.modifierFlags.contains(.control):
             if let index = switcherIndex, tabs.indices.contains(index) {
                 store.select(tabs[index].id)

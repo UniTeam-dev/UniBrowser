@@ -42,6 +42,10 @@ extension TabWebController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         environment?.store?.scheduleSave()
+        Task { [weak tab] in
+            try? await Task.sleep(for: .seconds(1)) // let the page paint first
+            tab?.captureThumbnail()
+        }
     }
 }
 
