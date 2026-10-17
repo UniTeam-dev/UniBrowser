@@ -362,7 +362,9 @@ final class HelperChannel {
                 if let error = message["error"] {
                     fail(PasswordsBridgeError.protocolError("\(error)"))
                 } else {
-                    pending?.resume(returning: message)
+                    // Caller and reader are both @MainActor; the dictionary never crosses threads.
+                    nonisolated(unsafe) let reply = message
+                    pending?.resume(returning: reply)
                     pending = nil
                 }
             }

@@ -73,9 +73,8 @@ final class BrowserTab: Identifiable {
             webView.observe(\.canGoForward, options: [.new]) { [weak self] view, _ in
                 MainActor.assumeIsolated { self?.canGoForward = view.canGoForward }
             },
-            webView.observe(\.mediaPlaybackState, options: [.new]) { [weak self] view, _ in
-                MainActor.assumeIsolated { self?.isPlayingAudio = view.mediaPlaybackState == .playing }
-            },
+            // ponytail: WebKit has no KVO for playback, so isPlayingAudio stays false;
+            // poll requestMediaPlaybackState() if the speaker icon is needed.
         ]
 
         self.controller = controller
