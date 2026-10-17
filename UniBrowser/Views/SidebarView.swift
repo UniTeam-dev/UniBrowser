@@ -81,24 +81,13 @@ struct SidebarView: View {
         .frame(height: 22)
     }
 
-    /// The address without "https://" and "www.", path and query kept.
-    private var addressText: String? {
-        guard let url = store.selectedTab?.url else { return nil }
-        var text = url.absoluteString
-        for prefix in ["https://", "http://", "www."] where text.hasPrefix(prefix) { text.removeFirst(prefix.count) }
-        return text.hasSuffix("/") && url.path() == "/" ? String(text.dropLast()) : text
-    }
-
     private var addressButton: some View {
         Button { model.openPalette(.search) } label: {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondaryText)
-                Text(addressText ?? "Поиск или адрес")
+                Text(store.selectedTab?.url?.host() ?? "Поиск или адрес")
                     .lineLimit(1)
-                    // Middle, so both the site and the end of a long path stay visible.
-                    .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .help(store.selectedTab?.url?.absoluteString ?? "")
                 Text("⌘K")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.secondaryText)
