@@ -46,7 +46,9 @@ private WebKit API allowed). The iPhone app goes to the App Store, see
   view, reveal, copy, edit, delete, add by hand. Autofill and the save prompt
   already use this store. Bring your logins over with "Импортировать из CSV…"
   (Passwords app ▸ File ▸ Export All Passwords). Checks: `scripts/keychain_check.swift`
-  (store round-trip), `scripts/csv_check.swift` (CSV parsing).
+  (store round-trip), `scripts/csv_check.swift` (CSV parsing). `scripts/login_capture_check.swift` signs in on
+  test pages (plain form, iframe, shadow DOM, div button, script redirect) in a real WKWebView
+  and checks the login is captured: `swiftc -parse-as-library UniBrowser/Web/LoginFormScript.swift scripts/login_capture_check.swift -o /tmp/login_capture_check && /tmp/login_capture_check`.
 - Web extensions (⌘⇧E): install an unpacked folder (or drop it on the app icon)
   or a Chrome Web Store link/ID; content scripts, toolbar buttons with popups and
   badges, a permission prompt at install, enable/remove.

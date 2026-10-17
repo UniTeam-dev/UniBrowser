@@ -11,7 +11,9 @@ struct PasswordBar: View {
         if let pending = tab.pendingSave {
             bar {
                 Image(systemName: "key.fill").foregroundStyle(Palette.accent)
-                Text("Сохранить пароль для **\(pending.username.isEmpty ? pending.host : pending.username)** в «\(model.passwords.displayName)»?")
+                Text(pending.username.isEmpty
+                     ? "Сохранить пароль для **\(pending.host)** в «\(model.passwords.displayName)»?"
+                     : "Сохранить пароль **\(pending.username)** для \(pending.host) в «\(model.passwords.displayName)»?")
                 Spacer()
                 Button("Не сейчас") { tab.pendingSave = nil }
                 Button("Сохранить") {

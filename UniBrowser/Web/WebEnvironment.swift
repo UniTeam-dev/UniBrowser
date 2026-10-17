@@ -36,7 +36,8 @@ final class WebEnvironment {
         content.addUserScript(WKUserScript(
             source: LoginFormScript.source,
             injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true,
+            // Many sites sign in inside an iframe (SSO widgets, embedded login forms).
+            forMainFrameOnly: false,
             in: LoginFormScript.world
         ))
         content.add(WeakScriptHandler(controller), contentWorld: LoginFormScript.world, name: LoginFormScript.handlerName)

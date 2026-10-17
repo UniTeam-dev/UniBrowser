@@ -36,9 +36,10 @@ extension TabWebController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.loginOffers = []
-        // A login usually redirects; the save prompt waits for the user unless the site changed.
-        if tab?.pendingSave?.host != webView.url?.host() { tab?.pendingSave = nil }
+        // The save prompt outlives the navigation: a login usually redirects, often to another
+        // host (id.site.ru → site.ru, an SSO provider → the app). It stays until answered.
         tab?.hasLoginForm = false
+        tab?.loginFrame = nil
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -79,9 +80,8 @@ extension TabWebController: WKUIDelegate {
 
 extension TabWebController: WKScriptMessageHandler {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        // Only trust the top frame, and only for the origin it actually loaded.
-        guard message.frameInfo.isMainFrame,
-              let body = message.body as? [String: Any],
+        // Any frame may report its own login, but only for the origin it actually loaded.
+        guard let body = message.body as? [String: Any],
               let action = body["action"] as? String,
               let host = message.frameInfo.request.url?.host(),
               message.frameInfo.securityOrigin.host == host,
@@ -91,6 +91,7 @@ extension TabWebController: WKScriptMessageHandler {
         switch action {
         case "formFound":
             tab.hasLoginForm = true
+            tab.loginFrame = message.frameInfo
             Task {
                 let offers = (try? await environment.passwords.credentials(for: host)) ?? []
                 tab.loginOffers = offers

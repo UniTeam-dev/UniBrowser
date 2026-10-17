@@ -1,7 +1,7 @@
 import Foundation
 import WebKit
 
-/// JavaScript injected into every top-level page. It tells the app when a
+/// JavaScript injected into every frame of every page. It tells the app when a
 /// login form appears and when one is submitted, and exposes a fill function
 /// the app calls with a credential the user picked.
 enum LoginFormScript {
@@ -17,11 +17,24 @@ enum LoginFormScript {
       const post = (msg) => window.webkit.messageHandlers.unibrowserLogin.postMessage(msg);
 
       const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-      const passwordField = () =>
-        [...document.querySelectorAll('input[type="password"]')].find(visible);
+      // Login forms built as web components keep their fields in (open) shadow roots.
+      const shadowRoots = (root = document) => {
+        const found = [];
+        for (const el of root.querySelectorAll('*')) {
+          if (el.shadowRoot) found.push(el.shadowRoot, ...shadowRoots(el.shadowRoot));
+        }
+        return found;
+      };
+      const passwordField = () => {
+        for (const root of [document, ...shadowRoots()]) {
+          const pw = [...root.querySelectorAll('input[type="password"]')].find(visible);
+          if (pw) return pw;
+        }
+        return null;
+      };
 
       const usernameField = (pw) => {
-        const scope = pw.form || document;
+        const scope = pw.form || pw.getRootNode();
         const candidates = [...scope.querySelectorAll(
           'input[autocomplete="username"], input[type="email"], input[type="text"], input[type="tel"], input:not([type])'
         )].filter(visible);
@@ -39,7 +52,15 @@ enum LoginFormScript {
           announced = true;
           post({ action: 'formFound' });
         }
+        // submit doesn't cross a shadow boundary, so listen inside the field's root too.
+        const root = pw && pw.getRootNode();
+        if (root instanceof ShadowRoot && !root.__unibrowserLogin) {
+          root.__unibrowserLogin = true;
+          root.addEventListener('submit', onSubmit, true);
+        }
       };
+      let scanTimer = null;
+      const scanSoon = () => { if (!scanTimer) scanTimer = setTimeout(() => { scanTimer = null; scan(); }, 300); };
 
       const capture = (pw) => {
         if (!pw || !pw.value) return;
@@ -47,18 +68,25 @@ enum LoginFormScript {
         post({ action: 'submitted', username: user ? user.value : '', password: pw.value });
       };
 
-      document.addEventListener('submit', (e) => {
+      const onSubmit = (e) => {
         capture(e.target.querySelector && e.target.querySelector('input[type="password"]'));
-      }, true);
+      };
+      document.addEventListener('submit', onSubmit, true);
 
-      // Many sites log in with a button and fetch(), never firing submit.
+      // Many sites log in with a button (or a styled div) and fetch(), never firing submit.
+      // composedPath()[0] is the real target even inside a shadow root.
       document.addEventListener('click', (e) => {
-        const button = e.target.closest && e.target.closest('button, input[type="submit"], [role="button"]');
-        if (button) capture(passwordField());
+        const target = e.composedPath()[0];
+        if (!(target instanceof Element) || target.matches('input:not([type="submit"]):not([type="button"]):not([type="image"])')) return;
+        const clickable = target.closest('button, input, a, [role="button"]') || getComputedStyle(target).cursor === 'pointer';
+        if (clickable) capture(passwordField());
       }, true);
       document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && e.target && e.target.type === 'password') capture(e.target);
+        const target = e.composedPath()[0];
+        if (e.key === 'Enter' && target instanceof HTMLInputElement) capture(passwordField());
       }, true);
+      // A script that signs in and then moves to another page.
+      window.addEventListener('pagehide', () => capture(passwordField()));
 
       const setValue = (el, value) => {
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -77,7 +105,7 @@ enum LoginFormScript {
       };
 
       scan();
-      new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+      new MutationObserver(scanSoon).observe(document.documentElement, { childList: true, subtree: true });
     })();
     """#
 }

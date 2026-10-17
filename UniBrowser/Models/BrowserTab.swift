@@ -26,6 +26,8 @@ final class BrowserTab: Identifiable {
     var pendingSave: Credential?
     /// The page has a visible password field.
     var hasLoginForm = false
+    /// The frame that showed the login form (the page itself or an iframe), where `fill` types.
+    @ObservationIgnored var loginFrame: WKFrameInfo?
     /// Last page snapshot, for the tab map and evening cleanup.
     var thumbnail: NSImage?
     /// Developer tools of the live page; nil while asleep, so sleeping closes the panel.
@@ -125,11 +127,14 @@ final class BrowserTab: Identifiable {
     }
 
     func fill(_ credential: Credential) {
-        guard let webView, webView.url?.host() == credential.host else { return }
+        guard let webView else { return }
+        // Only into the frame whose site the login belongs to.
+        let frame = loginFrame?.securityOrigin.host == credential.host ? loginFrame : nil
+        guard frame != nil || webView.url?.host() == credential.host else { return }
         webView.callAsyncJavaScript(
             "return window.__unibrowserFill && window.__unibrowserFill(username, password);",
             arguments: ["username": credential.username, "password": credential.password],
-            in: nil,
+            in: frame,
             in: LoginFormScript.world,
             completionHandler: nil
         )
