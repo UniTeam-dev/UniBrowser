@@ -4,7 +4,7 @@ import Foundation
 enum BrowsingMode: String, CaseIterable, Identifiable, Codable {
     /// A normal browser: requests go straight from the phone.
     case direct
-    /// Requests to the listed work domains go through the user's Mac and its VPN.
+    /// Requests to the listed domains go through the user's Mac and its network.
     case viaMac
 
     var id: String { rawValue }

@@ -265,7 +265,7 @@ private struct StartPage: View {
                 }
             Text(space.name).font(.title2.bold())
             Text(mode == .viaMac
-                 ? "Вкладки вашего Mac. Рабочие сайты откроются через него."
+                 ? "Вкладки вашего Mac. Сайты из его сети откроются через него."
                  : "Откройте сайт или найдите что-нибудь.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

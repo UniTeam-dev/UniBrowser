@@ -3,7 +3,7 @@ import Network
 import WebKit
 
 /// Things every tab of one mode shares: its cookies and site data, the saved
-/// logins and, in the via-Mac mode, the proxy that sends work domains through the Mac.
+/// logins and, in the via-Mac mode, the proxy that sends the listed domains through the Mac.
 @MainActor
 final class MobileWebEnvironment {
     weak var store: MobileStore?

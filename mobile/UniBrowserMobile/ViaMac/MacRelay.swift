@@ -8,7 +8,7 @@ import UIKit
 ///
 /// Proxy route: WKWebView → SOCKS5 on 127.0.0.1:47801 → ViaMacClient → iroh
 /// (direct or via relay) → SOCKS server in UniBrowser on the Mac → the Mac's
-/// network and VPN. Host names are resolved on the Mac, so internal DNS names work.
+/// network. Host names are resolved on the Mac, so internal DNS names work.
 ///
 /// Mirror: the via-Mac mode's spaces, groups and tabs are the Mac's. While
 /// connected, every change on either side is sent at once and the later one
@@ -46,7 +46,7 @@ final class MacRelay {
     private(set) var isSyncing = false
     private(set) var lastSynced: Date?
 
-    /// Domains sent through the Mac, e.g. "corp.example". Everything else goes direct.
+    /// Domains sent through the Mac, e.g. "nas.local". Everything else goes direct.
     var workDomains: [String] {
         didSet {
             UserDefaults.standard.set(workDomains, forKey: Keys.domains)
@@ -100,8 +100,8 @@ final class MacRelay {
 
     // MARK: - Proxy
 
-    /// One SOCKS5 hop to the tunnel for the work domains. Failover is off on
-    /// purpose: with the Mac unreachable a work page fails instead of quietly
+    /// One SOCKS5 hop to the tunnel for the listed domains. Failover is off on
+    /// purpose: with the Mac unreachable such a page fails instead of quietly
     /// loading from the phone's own network.
     func proxyConfigurations() -> [ProxyConfiguration] {
         guard !workDomains.isEmpty else { return [] }

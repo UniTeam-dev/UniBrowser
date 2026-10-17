@@ -30,7 +30,7 @@ final class PhonePasswords {
         return (pending + fromMac.filter { !mine.contains($0.id) }).sorted { ($0.host, $0.username) < ($1.host, $1.username) }
     }
 
-    /// Logins for the page's host and its parent domains ("login.corp.example" also gets "corp.example").
+    /// Logins for the page's host and its parent domains ("login.example.com" also gets "example.com").
     func credentials(for host: String) -> [SyncedCredential] {
         let host = host.lowercased()
         return all.filter { host == $0.host || host.hasSuffix("." + $0.host) }

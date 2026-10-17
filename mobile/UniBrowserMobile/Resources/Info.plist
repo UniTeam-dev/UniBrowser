@@ -28,7 +28,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<!-- A browser must open http:// sites (intranet ones too); without this WKWebView fails them with -1022. Web views only. -->
+	<!-- A browser must open http:// sites (home-network ones too); without this WKWebView fails them with -1022. Web views only. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoadsInWebContent</key>

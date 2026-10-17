@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A strip above the page in the via-Mac mode when work sites can't load yet.
+/// A strip above the page in the via-Mac mode when sites on the Mac's network can't load yet.
 struct ViaMacBanner: View {
     let relay: MacRelay
     let onSetup: () -> Void
@@ -24,11 +24,11 @@ struct ViaMacBanner: View {
 
     private var message: String? {
         switch relay.status {
-        case .notPaired: return "Mac не подключён, рабочие сайты не откроются."
+        case .notPaired: return "Mac не подключён, сайты из его сети не откроются."
         case .connecting: return "Подключаюсь к Mac…"
         case .unreachable(let reason): return reason
         case .connected:
-            return relay.workDomains.isEmpty ? "Добавьте рабочие домены, которые нужно открывать через Mac." : nil
+            return relay.workDomains.isEmpty ? "Добавьте домены, которые нужно открывать через Mac." : nil
         }
     }
 }
@@ -77,14 +77,14 @@ struct ViaMacSettingsView: View {
                 } header: {
                     Text("Mac")
                 } footer: {
-                    Text("Вкладки, группы и пространства режима «Через Mac» — это вкладки вашего Mac: изменения с обеих сторон видны сразу, а после разлуки объединяются. Сохранённые пароли UniBrowser приходят с Mac. Работает и в одной Wi-Fi, и через мобильный интернет. Mac должен быть включён, не спать и быть в корпоративном VPN.")
+                    Text("Вкладки, группы и пространства режима «Через Mac» — это вкладки вашего Mac: изменения с обеих сторон видны сразу, а после разлуки объединяются. Сохранённые пароли UniBrowser приходят с Mac. Работает и в одной Wi-Fi, и через мобильный интернет. Mac должен быть включён, не спать и сам открывать эти сайты.")
                 }
 
                 Section {
                     ForEach(relay.workDomains, id: \.self) { Text($0) }
                         .onDelete { relay.removeDomains(at: $0) }
                     HStack {
-                        TextField("corp.example", text: $newDomain)
+                        TextField("nas.local", text: $newDomain)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -93,9 +93,9 @@ struct ViaMacSettingsView: View {
                             .disabled(newDomain.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 } header: {
-                    Text("Рабочие домены")
+                    Text("Домены через Mac")
                 } footer: {
-                    Text("Через Mac идут только эти домены и их поддомены, остальные сайты открываются напрямую с телефона.")
+                    Text("Через Mac идут только эти домены и их поддомены, остальные сайты открываются напрямую с телефона. Добавляйте только свои устройства и сети, к которым у вас есть доступ.")
                 }
 
                 Section {

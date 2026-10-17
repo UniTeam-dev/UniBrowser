@@ -6,7 +6,7 @@ import Network
 /// loopback SOCKS port that WKWebView's proxy setting points at.
 ///
 /// Route: WKWebView → 127.0.0.1:47801 → one iroh stream per connection →
-/// SOCKS server in UniBrowser on the Mac → the Mac's network and VPN.
+/// SOCKS server in UniBrowser on the Mac → the Mac's network.
 actor ViaMacClient {
     enum Path: Sendable {
         case direct
@@ -31,7 +31,7 @@ actor ViaMacClient {
     }
 
     /// Starts the loopback SOCKS port once. Connections arriving while the Mac
-    /// is unreachable are dropped, so work pages fail instead of loading direct.
+    /// is unreachable are dropped, so those pages fail instead of loading direct.
     func startLocalProxy(port: NWEndpoint.Port) throws {
         guard listener == nil else { return }
         let parameters = NWParameters.tcp

@@ -185,7 +185,7 @@ actor ViaMacEngine {
 
 /// A minimal SOCKS5 server (no auth, CONNECT only). Authentication already
 /// happened at the iroh layer: only paired phones get this far. Host names
-/// are resolved here on the Mac, so internal names resolve through its VPN.
+/// are resolved here on the Mac, so names from its local network resolve.
 enum SocksServer {
     static func serve(_ reader: StreamReader, _ send: SendStream) async {
         var tcp: NWConnection?

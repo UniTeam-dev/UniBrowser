@@ -3,8 +3,8 @@ import Foundation
 import Observation
 import SystemConfiguration
 
-/// The Mac side of the iPhone link: paired iPhones send their work-site
-/// requests through this Mac (and so through its VPN), and get a live
+/// The Mac side of the iPhone link: paired iPhones send their listed-site
+/// requests through this Mac and its network, and get a live
 /// two-way mirror of this Mac's spaces, groups, tabs and saved logins.
 @MainActor
 @Observable
