@@ -21,34 +21,28 @@ func draw(mac: Bool, to path: String) {
     if mac { // drop shadow under the squircle
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: color(0x000000, 0.35))
-        ctx.addPath(shape); ctx.setFillColor(color(0x2563C9)); ctx.fillPath()
+        ctx.addPath(shape); ctx.setFillColor(color(0x7B53FA)); ctx.fillPath()
         ctx.restoreGState()
     }
     ctx.saveGState()
     ctx.addPath(shape); ctx.clip()
-    let bg = CGGradient(colorsSpace: nil, colors: [color(0x3B82F6), color(0x2563C9), color(0x5B3FD0)] as CFArray, locations: [0, 0.45, 1])!
+    let bg = CGGradient(colorsSpace: nil, colors: [color(0x5B5BF5), color(0x9B4BFF)] as CFArray, locations: [0, 1])!
     ctx.drawLinearGradient(bg, start: CGPoint(x: tile.minX, y: tile.maxY), end: CGPoint(x: tile.maxX, y: tile.minY), options: [])
-    let glow = CGGradient(colorsSpace: nil, colors: [color(0xFFFFFF, 0.28), color(0xFFFFFF, 0)] as CFArray, locations: [0, 1])!
+    let glow = CGGradient(colorsSpace: nil, colors: [color(0xFFFFFF, 0.16), color(0xFFFFFF, 0)] as CFArray, locations: [0, 1])!
     ctx.drawRadialGradient(glow, startCenter: CGPoint(x: tile.minX + 260 * s, y: tile.maxY - 200 * s), startRadius: 0,
                            endCenter: CGPoint(x: tile.minX + 260 * s, y: tile.maxY - 200 * s), endRadius: 700 * s, options: [])
 
-    // Monogram "U": one thick round-capped stroke, white with a faint cool shade at the bottom.
+    // Monogram "U" with an orbit dot above its opening, plain white.
     func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: tile.minX + x * s, y: tile.maxY - y * s) } // top-left coords
     let u = CGMutablePath()
-    u.move(to: p(352, 268))
-    u.addLine(to: p(352, 560))
-    u.addArc(center: p(512, 560), radius: 160 * s, startAngle: .pi, endAngle: 0, clockwise: false)
-    u.addLine(to: p(672, 268))
-    let glyph = u.copy(strokingWithWidth: 150 * s, lineCap: .round, lineJoin: .round, miterLimit: 10)
-    ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -16 * s), blur: 40 * s, color: color(0x0B1B4D, 0.40))
-    ctx.addPath(glyph); ctx.setFillColor(color(0xFFFFFF)); ctx.fillPath()
-    ctx.restoreGState()
-    ctx.saveGState()
-    ctx.addPath(glyph); ctx.clip()
-    let shade = CGGradient(colorsSpace: nil, colors: [color(0xFFFFFF), color(0xDCE6FF)] as CFArray, locations: [0.45, 1])!
-    ctx.drawLinearGradient(shade, start: p(512, 190), end: p(512, 800), options: [])
-    ctx.restoreGState()
+    u.move(to: p(344, 288))
+    u.addLine(to: p(344, 530))
+    u.addArc(center: p(512, 530), radius: 168 * s, startAngle: .pi, endAngle: 0, clockwise: false)
+    u.addLine(to: p(680, 288))
+    ctx.setShadow(offset: CGSize(width: 0, height: -10 * s), blur: 30 * s, color: color(0x1A0B4D, 0.30))
+    ctx.addPath(u.copy(strokingWithWidth: 84 * s, lineCap: .round, lineJoin: .round, miterLimit: 10))
+    ctx.addEllipse(in: CGRect(x: p(461, 0).x, y: p(0, 339).y, width: 102 * s, height: 102 * s))
+    ctx.setFillColor(color(0xFFFFFF)); ctx.fillPath()
     ctx.restoreGState()
 
     let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
