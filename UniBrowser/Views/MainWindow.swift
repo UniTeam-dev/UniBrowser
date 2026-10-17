@@ -238,15 +238,15 @@ struct WebViewContainer: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context: Context) {
         let webView = tab.wake(environment: environment)
-        guard webView.superview !== container else { return }
+        guard let hostView = tab.hostView, hostView.superview !== container else { return }
         container.subviews.forEach { $0.removeFromSuperview() }
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(webView)
+        hostView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(hostView)
         NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: container.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            hostView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hostView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            hostView.topAnchor.constraint(equalTo: container.topAnchor),
+            hostView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         container.window?.makeFirstResponder(webView)
     }

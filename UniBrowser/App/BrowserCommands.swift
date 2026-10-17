@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 struct BrowserCommands: Commands {
     let model: AppModel
@@ -54,6 +55,17 @@ struct BrowserCommands: Commands {
             Button("Новое пространство") { model.store.newSpace(named: "Пространство \(model.store.spaces.count + 1)") }
         }
 
+        #if DIRECT
+        CommandMenu("Разработка") {
+            Button("Инструменты разработчика") { inspect(WebInspector.toggle) }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF12FunctionKey)!)), modifiers: [])
+            Button("Консоль JavaScript") { inspect(WebInspector.showConsole) }
+                .keyboardShortcut("j", modifiers: [.command, .option])
+            Button("Выбрать элемент на странице") { inspect(WebInspector.pickElement) }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+        }
+        #endif
+
         CommandGroup(after: .sidebar) {
             Button(model.isSidebarVisible ? "Скрыть панель вкладок" : "Показать панель вкладок") {
                 withAnimation(.snappy) { model.isSidebarVisible.toggle() }
@@ -61,4 +73,10 @@ struct BrowserCommands: Commands {
             .keyboardShortcut("s", modifiers: [.command, .control])
         }
     }
+
+    #if DIRECT
+    private func inspect(_ action: (WKWebView) -> Void) {
+        if let webView = model.store.selectedTab?.webView { action(webView) }
+    }
+    #endif
 }
