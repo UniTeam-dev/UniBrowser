@@ -36,7 +36,8 @@ extension TabWebController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.loginOffers = []
-        tab?.pendingSave = nil
+        // A login usually redirects; the save prompt waits for the user unless the site changed.
+        if tab?.pendingSave?.host != webView.url?.host() { tab?.pendingSave = nil }
         tab?.hasLoginForm = false
     }
 

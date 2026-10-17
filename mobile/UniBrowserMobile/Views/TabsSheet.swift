@@ -9,6 +9,8 @@ struct TabsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var newGroupName = ""
     @State private var isNamingGroup = false
+    @State private var renamingTabID: UUID?
+    @State private var tabName = ""
 
     var body: some View {
         NavigationStack {
@@ -85,6 +87,11 @@ struct TabsSheet: View {
                 }
                 Button("Отмена", role: .cancel) { newGroupName = "" }
             }
+            .alert("Название вкладки", isPresented: Binding(get: { renamingTabID != nil }, set: { if !$0 { renamingTabID = nil } })) {
+                TextField("Пусто — название страницы", text: $tabName)
+                Button("Сохранить") { if let id = renamingTabID { store.renameTab(id, to: tabName) } }
+                Button("Отмена", role: .cancel) {}
+            }
         }
     }
 
@@ -147,6 +154,10 @@ struct TabsSheet: View {
                     store.activeSpace.pinnedTabIDs.contains(tabID) ? "Открепить" : "Закрепить",
                     systemImage: "pin"
                 ) { store.togglePin(tabID) }
+                Button("Переименовать", systemImage: "pencil") {
+                    tabName = tab.customTitle ?? ""
+                    renamingTabID = tabID
+                }
                 Menu("В группу", systemImage: "folder") {
                     ForEach(store.activeSpace.groups) { group in
                         Button(group.name) { store.move(tabID, toGroup: group.id) }

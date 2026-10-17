@@ -69,6 +69,9 @@ struct TabRow: View {
     @Environment(BrowserStore.self) private var store
     let tab: BrowserTab
     @State private var isHovered = false
+    @State private var isRenaming = false
+    @State private var draftName = ""
+    @FocusState private var isNameFocused: Bool
 
     private var isSelected: Bool { store.activeSpace.selectedTabID == tab.id }
 
@@ -76,11 +79,24 @@ struct TabRow: View {
         Button { store.select(tab.id) } label: {
             HStack(spacing: 8) {
                 Favicon(tab: tab, size: 16)
-                Text(tab.displayTitle)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
+                if isRenaming {
+                    TextField(tab.title.isEmpty ? "Название" : tab.title, text: $draftName)
+                        .textFieldStyle(.plain)
+                        .onSubmit {
+                            store.renameTab(tab.id, to: draftName)
+                            isRenaming = false
+                        }
+                        .onExitCommand { isRenaming = false }
+                        .focused($isNameFocused)
+                        .onAppear { isNameFocused = true }
+                        .onChange(of: isNameFocused) { if !isNameFocused { isRenaming = false } }
+                } else {
+                    Text(tab.displayTitle)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
+                }
                 if tab.isPlayingAudio {
                     Image(systemName: "speaker.wave.2")
                         .foregroundStyle(Palette.accent)
@@ -112,7 +128,11 @@ struct TabRow: View {
         .onHover { isHovered = $0 }
         .draggable(tab.id.uuidString)
         .contextMenu {
-            Button("Закрепить") { store.togglePin(tab.id) }
+            Button(store.activeSpace.pinnedTabIDs.contains(tab.id) ? "Открепить" : "Закрепить") { store.togglePin(tab.id) }
+            Button("Переименовать") { draftName = tab.customTitle ?? ""; isRenaming = true }
+            if tab.customTitle != nil {
+                Button("Вернуть название страницы") { store.renameTab(tab.id, to: "") }
+            }
             Menu("Переместить в группу") {
                 ForEach(store.activeSpace.groups) { group in
                     Button(group.name) { store.move(tab.id, toGroup: group.id) }

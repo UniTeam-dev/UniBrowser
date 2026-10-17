@@ -8,6 +8,8 @@ struct SessionSnapshot: Codable {
         var id: UUID
         var url: URL?
         var title: String
+        /// The name the user gave the tab; nil shows the page title.
+        var customTitle: String?
         var lastActivated: Date
     }
 

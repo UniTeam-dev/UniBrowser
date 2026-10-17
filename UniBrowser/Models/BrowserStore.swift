@@ -34,7 +34,7 @@ final class BrowserStore {
             activeSpaceID = snapshot.activeSpaceID
             archive = snapshot.archive ?? []
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
-                ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated))
+                ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, lastActivated: $0.lastActivated))
             })
         } else {
             let work = Space(name: "Работа", colorHex: Palette.spaceColors[0])
@@ -132,6 +132,13 @@ final class BrowserStore {
 
     func closeSelectedTab() {
         if let id = activeSpace.selectedTabID { closeTab(id) }
+    }
+
+    /// An empty name goes back to the page title.
+    func renameTab(_ tabID: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        tabs[tabID]?.customTitle = name.isEmpty ? nil : name
+        scheduleSave()
     }
 
     func togglePin(_ tabID: UUID) {
@@ -375,7 +382,7 @@ final class BrowserStore {
         SessionSnapshot(
             spaces: spaces,
             activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) },
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, lastActivated: $0.lastActivated) },
             archive: archive,
             modifiedAt: modifiedAt,
             deviceID: Self.deviceID
@@ -409,10 +416,11 @@ final class BrowserStore {
                 } else if tab.isAsleep {
                     tab.title = record.title
                 }
+                tab.customTitle = record.customTitle
                 tab.lastActivated = max(tab.lastActivated, record.lastActivated)
                 updated[record.id] = tab
             } else {
-                let tab = BrowserTab(id: record.id, url: record.url, title: record.title, lastActivated: record.lastActivated)
+                let tab = BrowserTab(id: record.id, url: record.url, title: record.title, customTitle: record.customTitle, lastActivated: record.lastActivated)
                 updated[record.id] = tab
                 environment.extensions.tabOpened(tab)
             }

@@ -35,7 +35,7 @@ final class MobileStore {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
-                ($0.id, MobileTab(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated))
+                ($0.id, MobileTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, lastActivated: $0.lastActivated))
             })
             archive = snapshot.archive ?? []
             lastModified = snapshot.modifiedAt ?? .distantPast
@@ -123,6 +123,13 @@ final class MobileStore {
         if wasSelected, let next = tabsByRecency.first {
             select(next.id)
         }
+        scheduleSave()
+    }
+
+    /// An empty name goes back to the page title.
+    func renameTab(_ tabID: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        tabs[tabID]?.customTitle = name.isEmpty ? nil : name
         scheduleSave()
     }
 
@@ -243,7 +250,7 @@ final class MobileStore {
         SessionSnapshot(
             spaces: spaces,
             activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) },
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, lastActivated: $0.lastActivated) },
             archive: archive,
             modifiedAt: modifiedAt,
             deviceID: Self.deviceID
@@ -272,10 +279,11 @@ final class MobileStore {
                 } else if tab.webView == nil {
                     tab.title = record.title
                 }
+                tab.customTitle = record.customTitle
                 tab.lastActivated = max(tab.lastActivated, record.lastActivated)
                 updated[record.id] = tab
             } else {
-                updated[record.id] = MobileTab(id: record.id, url: record.url, title: record.title, lastActivated: record.lastActivated)
+                updated[record.id] = MobileTab(id: record.id, url: record.url, title: record.title, customTitle: record.customTitle, lastActivated: record.lastActivated)
             }
         }
         for (id, tab) in tabs where updated[id] == nil { tab.sleep() }
