@@ -186,6 +186,106 @@
   // #endregion network
 
   // #region performance
+  // Spec «Производительность»: while recording, rAF timestamps (top frame only: every frame
+  // has its own rAF) and every entry type PerformanceObserver supports here. Times are this
+  // frame's performance.now(); native shifts them by timeOrigin to line frames up.
+  ub.module('performance', (ub) => {
+    const MAX_FRAMES = 36000; // 10 min at 60 fps
+    const MAX_ENTRIES = 5000;
+    let recording = null;
+
+    const plain = (e) => {
+      const out = { type: e.entryType, name: String(e.name).slice(0, 2000), start: e.startTime, duration: e.duration };
+      if (e.entryType === 'resource' || e.entryType === 'navigation') {
+        Object.assign(out, {
+          initiator: e.initiatorType, transfer: e.transferSize, size: e.decodedBodySize,
+          dnsStart: e.domainLookupStart, dnsEnd: e.domainLookupEnd, connectStart: e.connectStart, connectEnd: e.connectEnd,
+          requestStart: e.requestStart, responseStart: e.responseStart, responseEnd: e.responseEnd,
+        });
+      }
+      if (e.entryType === 'navigation') {
+        Object.assign(out, {
+          domInteractive: e.domInteractive, dcl: e.domContentLoadedEventEnd, load: e.loadEventEnd, navigation: e.type,
+        });
+      }
+      if (e.entryType === 'largest-contentful-paint') {
+        out.start = e.renderTime || e.loadTime || e.startTime;
+        out.size = e.size;
+        out.url = e.url;
+        if (e.element) out.element = ub.preview(e.element, 0).text;
+      }
+      if ('processingStart' in e) Object.assign(out, { processingStart: e.processingStart, processingEnd: e.processingEnd });
+      if (e.entryType === 'layout-shift') out.value = e.value;
+      return out;
+    };
+
+    const types = () => safe(() => [...PerformanceObserver.supportedEntryTypes], []);
+
+    return {
+      /// `buffered`: also the entries since this document started (reload-and-record, and
+      /// frames that appear during a recording).
+      start({ buffered = false } = {}) {
+        if (recording) this.stop();
+        const rec = { frames: [], entries: [], observers: [], start: buffered ? 0 : performance.now() };
+        recording = rec;
+        const collect = (list) => {
+          for (const e of list.getEntries()) if (rec.entries.length < MAX_ENTRIES) rec.entries.push(plain(e));
+        };
+        if (window === top) {
+          const tick = (time) => {
+            if (recording !== rec) return;
+            if (rec.frames.length < MAX_FRAMES) rec.frames.push(time);
+            rec.raf = requestAnimationFrame(tick);
+          };
+          rec.raf = requestAnimationFrame(tick);
+        }
+        for (const type of types()) {
+          safe(() => {
+            const observer = new PerformanceObserver(collect);
+            // 'event' only reports interactions over the threshold; 16 ms is the minimum.
+            observer.observe(type === 'event' ? { type, buffered, durationThreshold: 16 } : { type, buffered });
+            rec.observers.push({ observer, collect });
+          }, null);
+        }
+        return { start: rec.start, timeOrigin: performance.timeOrigin, types: types() };
+      },
+
+      stop() {
+        const rec = recording;
+        if (!rec) return null;
+        recording = null;
+        cancelAnimationFrame(rec.raf);
+        for (const { observer, collect } of rec.observers) {
+          safe(() => collect({ getEntries: () => observer.takeRecords() }), null);
+          observer.disconnect();
+        }
+        return {
+          start: rec.start, end: performance.now(), timeOrigin: performance.timeOrigin,
+          frames: rec.frames, entries: rec.entries, url: location.href, isTop: window === top,
+        };
+      },
+
+      /// Page load summary: navigation timing, first paints, LCP (buffered).
+      async load() {
+        const nav = performance.getEntriesByType('navigation')[0];
+        const paints = Object.fromEntries(performance.getEntriesByType('paint').map((e) => [e.name, e.startTime]));
+        let lcp = null;
+        if (types().includes('largest-contentful-paint')) {
+          lcp = await new Promise((resolve) => {
+            let last = null;
+            const observer = new PerformanceObserver((list) => { const all = list.getEntries(); if (all.length) last = all[all.length - 1]; });
+            safe(() => observer.observe({ type: 'largest-contentful-paint', buffered: true }), null);
+            setTimeout(() => { observer.disconnect(); resolve(last && plain(last)); }, 100);
+          });
+        }
+        return {
+          navigation: nav ? plain(nav) : null,
+          fp: paints['first-paint'], fcp: paints['first-contentful-paint'], lcp,
+          resources: performance.getEntriesByType('resource').length, url: location.href,
+        };
+      },
+    };
+  });
   // #endregion performance
 
   // #region application
@@ -201,6 +301,240 @@
   // #endregion security
 
   // #region coverage
+  // Spec «Покрытие»: a CSS rule is used if its selector matches something while recording
+  // (checked on start, after each mutation batch, on hover/focus, and on stop). Rules are
+  // found by parsing the sheet's text, so unused ranges are offsets into that text.
+  // coverage:parser-start (scripts/coverage_check.mjs tests this part)
+  /// Paren-aware split of a selector list.
+  const splitList = (list) => {
+    const parts = [];
+    let depth = 0, from = 0;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      if (c === '(' || c === '[') depth++;
+      else if (c === ')' || c === ']') depth--;
+      else if (c === ',' && depth === 0) { parts.push(list.slice(from, i).trim()); from = i + 1; }
+    }
+    parts.push(list.slice(from).trim());
+    return parts;
+  };
+
+  /// Style rules of a CSS text, in source order: {selector, start, end, children}. `start` is
+  /// the selector's first character, `end` is after the closing brace. Rules inside @media,
+  /// @supports, @layer, @container, @scope become rules of the enclosing level; nested rules
+  /// (CSS nesting) are children with the selector resolved. Other at-rules are skipped.
+  const parseCSS = (text) => {
+    const n = text.length;
+    const rules = [];
+    const stack = [{ kind: 'root', rules, selector: null }];
+    const GROUPS = ['media', 'supports', 'layer', 'container', 'scope', 'document', '-moz-document', 'starting-style'];
+    const skipBlank = (i, end) => {
+      for (;;) {
+        while (i < end && /\s/.test(text[i])) i++;
+        if (text[i] === '/' && text[i + 1] === '*') { const close = text.indexOf('*/', i + 2); i = close < 0 ? end : close + 2; } else return i;
+      }
+    };
+    const nest = (selector, parent) => splitList(selector)
+      .map((part) => part.includes('&') ? part.replaceAll('&', ':is(' + parent + ')') : ':is(' + parent + ') ' + part)
+      .join(', ');
+    let preludeStart = 0;
+    let i = 0;
+    while (i < n) {
+      const c = text[i];
+      if (c === '/' && text[i + 1] === '*') {
+        const close = text.indexOf('*/', i + 2);
+        i = close < 0 ? n : close + 2;
+      } else if (c === '"' || c === "'") {
+        i++;
+        while (i < n && text[i] !== c && text[i] !== '\n') i += text[i] === '\\' ? 2 : 1;
+        i++;
+      } else if (c === '\\') {
+        i += 2;
+      } else if (c === '{') {
+        const start = skipBlank(preludeStart, i);
+        const prelude = text.slice(start, i).trim();
+        const top = stack[stack.length - 1];
+        let frame;
+        if (top.kind === 'opaque') {
+          frame = { kind: 'opaque' };
+        } else if (prelude[0] === '@') {
+          const name = (/^@([\w-]+)/.exec(prelude) || [])[1];
+          frame = GROUPS.includes(String(name).toLowerCase()) ? { kind: 'group', rules: top.rules, selector: top.selector } : { kind: 'opaque' };
+        } else {
+          const selector = top.selector ? nest(prelude, top.selector) : prelude;
+          const rule = { selector, start, end: n, children: [] };
+          top.rules.push(rule);
+          frame = { kind: 'style', rules: rule.children, selector, rule };
+        }
+        stack.push(frame);
+        preludeStart = ++i;
+      } else if (c === '}') {
+        if (stack.length > 1) { const frame = stack.pop(); if (frame.rule) frame.rule.end = i + 1; }
+        preludeStart = ++i;
+      } else if (c === ';') {
+        preludeStart = ++i;
+      } else {
+        i++;
+      }
+    }
+    return rules;
+  };
+
+  /// What querySelector can test: pseudo-elements dropped, an emptied compound becomes `*`.
+  const matchable = (selector) => splitList(selector
+    .replace(/::[\w-]+(\([^)]*\))?/g, '')
+    .replace(/:(before|after|first-line|first-letter)\b/gi, ''))
+    .map((part) => !part ? '*' : /[>+~]$/.test(part) ? part + ' *' : part)
+    .join(', ');
+
+  /// Line ranges (1-based, inclusive, merged) covered by offset ranges of `text`.
+  const lineRanges = (text, ranges) => {
+    const starts = [0];
+    for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) starts.push(i + 1);
+    const lineOf = (offset) => {
+      let lo = 0, hi = starts.length - 1;
+      while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= offset) lo = mid; else hi = mid - 1; }
+      return lo + 1;
+    };
+    const lines = [];
+    for (const [from, to] of ranges) {
+      const a = lineOf(from), b = lineOf(Math.max(from, to - 1));
+      const last = lines[lines.length - 1];
+      if (last && a <= last[1] + 1) last[1] = Math.max(last[1], b); else lines.push([a, b]);
+    }
+    return lines;
+  };
+  // coverage:parser-end
+
+  ub.module('coverage', (ub) => {
+    const DYNAMIC = /:(hover|active|focus|focus-visible|focus-within)\b/;
+    const fetchText = ub.nativeFetch || window.fetch; // merge: Сеть may expose the unwrapped fetch as ub.nativeFetch
+    const utf8 = (text) => new TextEncoder().encode(text).length;
+    let rec = null;
+
+    const matches = (rule) => {
+      try { return !!document.querySelector(matchable(rule.selector)); } catch { return false; }
+    };
+
+    const sheetsOf = () => {
+      const all = [];
+      const add = (sheet) => {
+        all.push(sheet);
+        for (const rule of safe(() => [...sheet.cssRules], [])) if (rule.styleSheet) add(rule.styleSheet);
+      };
+      for (const sheet of [...document.styleSheets, ...safe(() => document.adoptedStyleSheets, [])]) add(sheet);
+      return all;
+    };
+
+    const load = async (sheet, key) => {
+      const node = sheet.ownerNode;
+      const item = { key, url: sheet.href || location.href, rules: [] };
+      if (!sheet.href && node && node.localName === 'style') {
+        item.text = node.textContent;
+        item.inline = [...document.querySelectorAll('style')].indexOf(node);
+      } else {
+        if (sheet.href) {
+          try {
+            const response = await fetchText(sheet.href, { cache: 'force-cache', credentials: 'include' });
+            if (response.ok) item.text = await response.text();
+          } catch { /* cross-origin without CORS: try the CSSOM */ }
+        }
+        if (item.text === undefined) {
+          const rules = safe(() => [...sheet.cssRules], null);
+          if (rules) {
+            item.text = rules.map((rule) => rule.cssText).join('\n');
+            item.rebuilt = true; // not the file's text: offsets don't match Источники
+          } else {
+            item.error = 'Нет доступа к правилам (другой источник без CORS)';
+          }
+        }
+        if (!sheet.href) item.constructed = true;
+      }
+      if (item.text !== undefined) {
+        item.rules = parseCSS(item.text);
+        item.total = utf8(item.text);
+      }
+      return item;
+    };
+
+    /// Marks rules that match now; only unused ones are tested. `dynamicOnly` after hover/focus.
+    const check = (dynamicOnly) => {
+      const visit = (rules) => {
+        for (const rule of rules) {
+          if (!rule.used && (!dynamicOnly || DYNAMIC.test(rule.selector))) rule.used = matches(rule);
+          if (rule.used) visit(rule.children);
+        }
+      };
+      for (const item of rec.items.values()) visit(item.rules);
+    };
+
+    const summary = (item, withRanges) => {
+      const out = { key: item.key, url: item.url, total: item.total || 0, unused: 0 };
+      for (const field of ['inline', 'rebuilt', 'constructed', 'error']) if (item[field] !== undefined) out[field] = item[field];
+      if (item.text === undefined) return out;
+      const ranges = [];
+      const walk = (rules) => { for (const rule of rules) if (rule.used) walk(rule.children); else ranges.push([rule.start, rule.end]); };
+      walk(item.rules);
+      out.unused = ranges.reduce((sum, [from, to]) => sum + utf8(item.text.slice(from, to)), 0);
+      if (withRanges) {
+        out.ranges = ranges;
+        out.lines = lineRanges(item.text, ranges);
+      }
+      return out;
+    };
+
+    const discover = async () => {
+      for (const sheet of sheetsOf()) {
+        if (rec.keys.has(sheet)) continue;
+        const key = rec.nextKey++;
+        rec.keys.set(sheet, key);
+        rec.items.set(key, await load(sheet, key));
+      }
+    };
+
+    const results = (withRanges) => [...rec.items.values()].map((item) => summary(item, withRanges));
+
+    // Re-check after DOM changes, at most every 250 ms; live totals go to the panel.
+    const schedule = (dynamicOnly) => {
+      if (!rec || rec.timer) return;
+      rec.timer = setTimeout(async () => {
+        if (!rec) return;
+        rec.timer = null;
+        if (!dynamicOnly) await discover();
+        if (!rec) return;
+        check(dynamicOnly);
+        ub.send('coverage', { sheets: results(false) });
+      }, 250);
+    };
+    const onPointer = () => schedule(true);
+
+    return {
+      async start() {
+        if (rec) this.stop();
+        rec = { items: new Map(), keys: new WeakMap(), nextKey: 1, timer: null };
+        const current = rec;
+        await discover();
+        if (rec !== current) return [];
+        check(false);
+        rec.observer = new MutationObserver(() => schedule(false));
+        rec.observer.observe(document, { subtree: true, childList: true, attributes: true });
+        for (const type of ['mouseover', 'focusin', 'mousedown']) document.addEventListener(type, onPointer, { capture: true, passive: true });
+        return results(false);
+      },
+
+      /// Final check; returns every sheet with its unused ranges and lines.
+      stop() {
+        if (!rec) return [];
+        clearTimeout(rec.timer);
+        rec.observer && rec.observer.disconnect();
+        for (const type of ['mouseover', 'focusin', 'mousedown']) document.removeEventListener(type, onPointer, { capture: true });
+        check(false);
+        const out = results(true);
+        rec = null;
+        return out;
+      },
+    };
+  });
   // #endregion coverage
 
   // #region changes

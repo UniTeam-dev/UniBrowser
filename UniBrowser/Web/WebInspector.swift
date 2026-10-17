@@ -23,6 +23,16 @@ enum WebInspector {
         send("showConsole", to: webView)
     }
 
+    /// Opens Timelines and starts a recording there (JS profile, memory, allocations):
+    /// WebKit's `togglePageProfiling`, unless one is already running.
+    static func profile(_ webView: WKWebView) {
+        send("show", to: webView)
+        let isProfiling = NSSelectorFromString("isProfilingPage")
+        if let inspector = inspector(of: webView), inspector.responds(to: isProfiling),
+           inspector.value(forKey: "isProfilingPage") as? Bool == true { return }
+        send("togglePageProfiling", to: webView)
+    }
+
     static func pickElement(_ webView: WKWebView) {
         send("show", to: webView)
         send("toggleElementSelection", to: webView)

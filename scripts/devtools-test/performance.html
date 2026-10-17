@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- Производительность and Покрытие test page: http://127.0.0.1:8000/performance.html
+     (scripts/devtools-test/serve.sh). -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>DevTools test: performance and coverage</title>
+  <link rel="stylesheet" href="coverage.css">
+  <style>
+    /* Inline sheet: .inline-used matches, .inline-unused never does. */
+    .inline-used { color: teal; }
+    .inline-unused { color: olive; }
+  </style>
+  <script>
+    performance.mark('head-script');
+  </script>
+</head>
+<body>
+  <h1 class="used">Производительность и покрытие</h1>
+  <p class="inline-used">Пометки, измерения, долгий кадр, загрузки и CSS-покрытие.</p>
+  <button id="mark" onclick="mark()">Метка и измерение</button>
+  <button id="jank" onclick="jank()">Долгий кадр (200 мс)</button>
+  <button id="load" onclick="loadMore()">Загрузить ресурсы</button>
+  <button id="add" onclick="addLate()">Добавить .late-used</button>
+  <a class="hover-target" href="#">Наведите — .hover-target:hover</a>
+  <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='120'%3E%3Crect width='300' height='120' fill='%232563C9'/%3E%3C/svg%3E" alt="LCP">
+  <div id="out"></div>
+  <script>
+    performance.mark('body-script');
+    let n = 0;
+    function mark() {
+      n += 1;
+      performance.mark('click-' + n);
+      const t = performance.now();
+      while (performance.now() - t < 30) {}
+      performance.measure('work-' + n, 'click-' + n);
+    }
+    function jank() {
+      const t = performance.now();
+      while (performance.now() - t < 200) {}
+    }
+    function loadMore() {
+      fetch('frame.html?' + Date.now()).then((r) => r.text());
+      const img = new Image();
+      img.src = 'coverage.css?img=' + Date.now();
+    }
+    function addLate() {
+      const div = document.createElement('div');
+      div.className = 'late-used';
+      div.textContent = 'Добавлено: .late-used теперь используется';
+      document.getElementById('out').append(div);
+    }
+    window.addEventListener('load', () => performance.measure('until-load', 'head-script'));
+  </script>
+</body>
+</html>

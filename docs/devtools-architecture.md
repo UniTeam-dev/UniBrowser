@@ -93,4 +93,10 @@ plist-able (`String`, numbers, `Bool`, arrays, dictionaries).
 - `session.webView` for WebKit API (cookies, `pageZoom`, `takeSnapshot`, …);
   `WebInspector.show(webView)` for the hand-off.
 - Settings that belong to one panel live in that panel (e.g. `@AppStorage` with a
-  `devTools…` key). The gear popover in `DevToolsView` only has the dock side for now.
+  `devTools…` key). The gear popover's settings are keys in `DevToolsSettings`
+  (`DevToolsView.swift`), each with its default documented there: console timestamps,
+  group similar, preserve log, disable cache, dock side, font size (also
+  `@Environment(\.devToolsFontSize)` and the panel's default `.font`), tab order.
+- ⇧⌘P in the panel lists `DevToolsView.commands`; add a panel's actions there.
+- Покрытие → Источники: `session.coverage.unusedLines(url:inline:)` (1-based line ranges)
+  and `unusedRanges(url:inline:)` (UTF-16 offsets) after a coverage recording stops.
