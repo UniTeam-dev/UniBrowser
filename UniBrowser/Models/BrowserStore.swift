@@ -13,9 +13,25 @@ final class BrowserStore {
 
     @ObservationIgnored let environment: WebEnvironment
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// iCloud mirror; nil when sync is off. Set up in init.
+    @ObservationIgnored let sync: SyncService?
+    /// Last snapshot time applied or saved, for last-writer-wins.
+    @ObservationIgnored private var lastModified = Date.distantPast
+    /// Guards against re-pushing a snapshot we just received from another device.
+    @ObservationIgnored private var isApplyingRemote = false
 
-    init(environment: WebEnvironment) {
+    /// Stable per-install id so a device ignores the echo of its own iCloud push.
+    static let deviceID: String = {
+        let key = "deviceID"
+        if let existing = UserDefaults.standard.string(forKey: key) { return existing }
+        let new = UUID().uuidString
+        UserDefaults.standard.set(new, forKey: key)
+        return new
+    }()
+
+    init(environment: WebEnvironment, sync: SyncService? = SyncService(containerIdentifier: "iCloud.app.unibrowser.UniBrowser")) {
         self.environment = environment
+        self.sync = sync
         if let snapshot = Self.loadSnapshot() {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
@@ -30,9 +46,23 @@ final class BrowserStore {
             tabs = [:]
             archive = []
         }
+        lastModified = (Self.loadSnapshot()?.modifiedAt) ?? .distantPast
         environment.store = self
         environment.extensions.store = self
         Task { await environment.extensions.loadAll() }
+
+        sync?.onRemote = { [weak self] snapshot in self?.applyRemote(snapshot) }
+        if let sync {
+            Task {
+                await sync.start()
+                sync.push(self.snapshot()) // seed the first mirror for a new iCloud account
+            }
+        }
+    }
+
+    /// Pulls again when the window becomes active, so switching back to a device catches up.
+    func syncOnActivate() {
+        Task { await sync?.pull() }
     }
 
     // MARK: - Lookup
@@ -335,21 +365,39 @@ final class BrowserStore {
         return components.url
     }
 
-    // MARK: - Persistence
+    // MARK: - Sync
 
-    private struct Snapshot: Codable {
-        struct TabRecord: Codable {
-            var id: UUID
-            var url: URL?
-            var title: String
-            var lastActivated: Date
-        }
-        var spaces: [Space]
-        var activeSpaceID: UUID
-        var tabs: [TabRecord]
-        /// Optional so sessions saved before the archive existed still load.
-        var archive: [ArchivedTab]?
+    private func snapshot(modifiedAt: Date = .now) -> SessionSnapshot {
+        SessionSnapshot(
+            spaces: spaces,
+            activeSpaceID: activeSpaceID,
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) },
+            archive: archive,
+            modifiedAt: modifiedAt,
+            deviceID: Self.deviceID
+        )
     }
+
+    /// Replaces local state with another device's snapshot when it is newer. Live tabs are
+    /// put to sleep and rebuilt, so the selected page reloads — acceptable for a mirror.
+    private func applyRemote(_ remote: SessionSnapshot) {
+        guard remote.deviceID != Self.deviceID else { return } // our own echo
+        guard let remoteTime = remote.modifiedAt, remoteTime > lastModified else { return }
+
+        isApplyingRemote = true
+        defer { isApplyingRemote = false }
+        tabs.values.forEach { $0.sleep() }
+        spaces = remote.spaces
+        activeSpaceID = remote.spaces.contains { $0.id == remote.activeSpaceID } ? remote.activeSpaceID : (remote.spaces.first?.id ?? remote.activeSpaceID)
+        archive = remote.archive ?? []
+        tabs = Dictionary(uniqueKeysWithValues: remote.tabs.map {
+            ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated))
+        })
+        lastModified = remoteTime
+        writeToDisk(snapshot(modifiedAt: remoteTime))
+    }
+
+    // MARK: - Persistence
 
     private static var snapshotURL: URL {
         let dir = URL.applicationSupportDirectory.appending(path: "UniBrowser", directoryHint: .isDirectory)
@@ -357,9 +405,9 @@ final class BrowserStore {
         return dir.appending(path: "session.json")
     }
 
-    private static func loadSnapshot() -> Snapshot? {
+    private static func loadSnapshot() -> SessionSnapshot? {
         guard let data = try? Data(contentsOf: snapshotURL) else { return nil }
-        return try? JSONDecoder().decode(Snapshot.self, from: data)
+        return try? JSONDecoder().decode(SessionSnapshot.self, from: data)
     }
 
     /// Debounced so a burst of changes writes the session file once.
@@ -373,12 +421,15 @@ final class BrowserStore {
     }
 
     func saveNow() {
-        let snapshot = Snapshot(
-            spaces: spaces,
-            activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) },
-            archive: archive
-        )
+        guard !isApplyingRemote else { return } // don't bump time / re-push a remote apply
+        let now = Date.now
+        lastModified = now
+        let snapshot = snapshot(modifiedAt: now)
+        writeToDisk(snapshot)
+        sync?.push(snapshot)
+    }
+
+    private func writeToDisk(_ snapshot: SessionSnapshot) {
         if let data = try? JSONEncoder().encode(snapshot) {
             try? data.write(to: Self.snapshotURL, options: .atomic)
         }
