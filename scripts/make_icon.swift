@@ -1,7 +1,7 @@
 import AppKit
 // Regenerate: swift scripts/make_icon.swift <mac-1024.png> <ios-1024.png>, then resize into the asset catalogs.
 
-// Draws the UniBrowser icon at 1024 px. "ios" = full-bleed square (iOS masks it),
+// Draws the UniBrowser icon (a "U" monogram) at 1024 px. "ios" = full-bleed square (iOS masks it),
 // "mac" = squircle inset per macOS icon grid with a soft shadow.
 func color(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor {
     CGColor(red: CGFloat(hex >> 16 & 255) / 255, green: CGFloat(hex >> 8 & 255) / 255, blue: CGFloat(hex & 255) / 255, alpha: a)
@@ -32,34 +32,23 @@ func draw(mac: Bool, to path: String) {
     ctx.drawRadialGradient(glow, startCenter: CGPoint(x: tile.minX + 260 * s, y: tile.maxY - 200 * s), startRadius: 0,
                            endCenter: CGPoint(x: tile.minX + 260 * s, y: tile.maxY - 200 * s), endRadius: 700 * s, options: [])
 
-    // The browser window card.
-    let card = r(196, 236, 632, 552)
+    // Monogram "U": one thick round-capped stroke, white with a faint cool shade at the bottom.
+    func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: tile.minX + x * s, y: tile.maxY - y * s) } // top-left coords
+    let u = CGMutablePath()
+    u.move(to: p(352, 268))
+    u.addLine(to: p(352, 560))
+    u.addArc(center: p(512, 560), radius: 160 * s, startAngle: .pi, endAngle: 0, clockwise: false)
+    u.addLine(to: p(672, 268))
+    let glyph = u.copy(strokingWithWidth: 150 * s, lineCap: .round, lineJoin: .round, miterLimit: 10)
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -18 * s), blur: 50 * s, color: color(0x0B1B4D, 0.45))
-    ctx.addPath(CGPath(roundedRect: card, cornerWidth: 72 * s, cornerHeight: 72 * s, transform: nil))
-    ctx.setFillColor(color(0xFFFFFF)); ctx.fillPath()
+    ctx.setShadow(offset: CGSize(width: 0, height: -16 * s), blur: 40 * s, color: color(0x0B1B4D, 0.40))
+    ctx.addPath(glyph); ctx.setFillColor(color(0xFFFFFF)); ctx.fillPath()
     ctx.restoreGState()
-
-    // Space rail: a soft column with three space dots, the top one ringed (active).
-    ctx.addPath(CGPath(roundedRect: r(232, 272, 120, 480), cornerWidth: 44 * s, cornerHeight: 44 * s, transform: nil))
-    ctx.setFillColor(color(0xE8E8EC)); ctx.fillPath()
-    let dots: [(UInt32, CGFloat)] = [(0x2563C9, 320), (0xE8833A, 436), (0x2E9E5B, 552)]
-    for (i, (hex, y)) in dots.enumerated() {
-        ctx.setFillColor(color(hex)); ctx.fillEllipse(in: r(260, y, 64, 64))
-        if i == 0 { ctx.setStrokeColor(color(hex)); ctx.setLineWidth(9 * s); ctx.strokeEllipse(in: r(246, y - 14, 92, 92)) }
-    }
-
-    // Tab rows: the selected one is an accent pill, the rest grey bars.
-    ctx.addPath(CGPath(roundedRect: r(384, 300, 408, 92), cornerWidth: 30 * s, cornerHeight: 30 * s, transform: nil))
-    ctx.setFillColor(color(0x2563C9, 0.14)); ctx.fillPath()
-    ctx.setFillColor(color(0x2563C9)); ctx.fillEllipse(in: r(408, 322, 48, 48))
-    ctx.addPath(CGPath(roundedRect: r(476, 334, 252, 24), cornerWidth: 12 * s, cornerHeight: 12 * s, transform: nil))
-    ctx.setFillColor(color(0x2563C9, 0.85)); ctx.fillPath()
-    for (i, y) in [CGFloat(428), 528, 628].enumerated() {
-        ctx.setFillColor(color(0xC7C7CF)); ctx.fillEllipse(in: r(408, y + 4, 44, 44))
-        ctx.addPath(CGPath(roundedRect: r(476, y + 14, [228, 268, 188][i], 24), cornerWidth: 12 * s, cornerHeight: 12 * s, transform: nil))
-        ctx.setFillColor(color(0xD9D9DF)); ctx.fillPath()
-    }
+    ctx.saveGState()
+    ctx.addPath(glyph); ctx.clip()
+    let shade = CGGradient(colorsSpace: nil, colors: [color(0xFFFFFF), color(0xDCE6FF)] as CFArray, locations: [0.45, 1])!
+    ctx.drawLinearGradient(shade, start: p(512, 190), end: p(512, 800), options: [])
+    ctx.restoreGState()
     ctx.restoreGState()
 
     let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
