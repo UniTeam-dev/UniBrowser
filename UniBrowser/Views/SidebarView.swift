@@ -29,7 +29,7 @@ struct SidebarView: View {
             bottomBar
         }
         .font(.system(size: 13))
-        .foregroundStyle(Color(hex: "#1D1D1F"))
+        .foregroundStyle(Palette.text)
         .padding(EdgeInsets(top: 12, leading: 10, bottom: 10, trailing: 10))
         .onChange(of: store.activeSpaceID) { isRenamingSpace = false }
     }
@@ -92,11 +92,11 @@ struct SidebarView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.secondaryText)
                     .padding(.horizontal, 5)
-                    .background(.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 4))
+                    .background(Palette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 4))
             }
             .padding(.horizontal, 10)
             .frame(height: 34)
-            .background(.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -147,7 +147,7 @@ struct SidebarView: View {
             iconButton("arrow.down.to.line", label: "Загрузки") {}
         }
         .padding(.top, 10)
-        .overlay(alignment: .top) { Rectangle().fill(.black.opacity(0.08)).frame(height: 1) }
+        .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1) }
     }
 
     private func iconButton(_ symbol: String, label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
@@ -259,7 +259,7 @@ struct SectionDivider: View {
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(0.4)
                 .foregroundStyle(Palette.secondaryText)
-            Rectangle().fill(.black.opacity(0.1)).frame(height: 1)
+            Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 1)
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 4)
@@ -279,7 +279,7 @@ struct PinnedGrid: View {
                         Favicon(tab: tab, size: 20)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .background(
-                                store.activeSpace.selectedTabID == id ? Color.white : Color.white.opacity(0.75),
+                                store.activeSpace.selectedTabID == id ? Palette.surface : Palette.surface.opacity(0.75),
                                 in: RoundedRectangle(cornerRadius: 9, style: .continuous)
                             )
                     }

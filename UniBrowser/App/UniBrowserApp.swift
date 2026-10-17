@@ -4,6 +4,7 @@ import SwiftUI
 struct UniBrowserApp: App {
     @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @State private var model = AppModel()
+    @AppStorage("appearance") private var appearance = Appearance.system
 
     var body: some Scene {
         Window("UniBrowser", id: "main") {
@@ -11,10 +12,9 @@ struct UniBrowserApp: App {
                 .environment(model)
                 .environment(model.store)
                 .frame(minWidth: 820, minHeight: 520)
-                // The design is light-only; dark mode would draw white titles on the white selected row.
-                .preferredColorScheme(.light)
                 .task { await model.passwords.apple.probe() }
-                .onAppear { appDelegate.model = model }
+                .onAppear { appDelegate.model = model; appearance.apply() }
+                .onChange(of: appearance) { appearance.apply() }
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
@@ -23,9 +23,40 @@ struct UniBrowserApp: App {
         Window("iPhone", id: "iphone") {
             ViaMacWindow()
                 .environment(model.viaMac)
-                .preferredColorScheme(.light)
         }
         .windowResizability(.contentSize)
+
+        Settings {
+            Form {
+                Picker("Оформление", selection: $appearance) {
+                    ForEach(Appearance.allCases, id: \.self) { Text($0.title) }
+                }
+                .pickerStyle(.segmented)
+            }
+            .padding(20)
+            .frame(width: 360)
+        }
+    }
+}
+
+enum Appearance: String, CaseIterable {
+    case system, light, dark
+
+    var title: String {
+        switch self {
+        case .system: "Как в системе"
+        case .light: "Светлое"
+        case .dark: "Тёмное"
+        }
+    }
+
+    /// App-wide, so web views and every window follow it; nil means follow macOS.
+    @MainActor func apply() {
+        NSApp.appearance = switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
     }
 }
 

@@ -36,7 +36,7 @@ struct CleanupSheet: View {
             }
             .padding(22)
             .frame(width: 480)
-            .background(Color(hex: "#F6F6F8"), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Palette.surfaceAlt, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .shadow(color: .black.opacity(0.28), radius: 32, y: 24)
         }
     }
@@ -63,7 +63,7 @@ struct CleanupSheet: View {
                 // The cards still to come, peeking out under the current one.
                 ForEach(Array([2, 1].filter { $0 < remaining }), id: \.self) { depth in
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(.white)
+                        .fill(Palette.surface)
                         .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
                         .scaleEffect(1 - Double(depth) * 0.05, anchor: .bottom)
                         .offset(y: Double(depth) * 8)
@@ -100,7 +100,7 @@ struct CleanupSheet: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 } else {
                     ZStack {
-                        Color(hex: "#E8E8EC")
+                        Palette.sidebar
                         Favicon(url: tab.url, size: 40)
                     }
                 }
@@ -119,7 +119,7 @@ struct CleanupSheet: View {
             }
             .padding(12)
         }
-        .background(.white)
+        .background(Palette.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
     }

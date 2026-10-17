@@ -21,7 +21,7 @@ struct TabSwitcherView: View {
                         .foregroundStyle(index == highlighted ? .white.opacity(0.85) : Palette.secondaryText)
                         .lineLimit(1)
                 }
-                .foregroundStyle(index == highlighted ? .white : Color(hex: "#1D1D1F"))
+                .foregroundStyle(index == highlighted ? .white : Palette.text)
                 .padding(12)
                 .background(index == highlighted ? Palette.accent : .clear, in: RoundedRectangle(cornerRadius: 10))
             }

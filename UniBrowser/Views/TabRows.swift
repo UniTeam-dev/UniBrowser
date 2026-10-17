@@ -100,10 +100,10 @@ struct TabRow: View {
             .background {
                 if isSelected {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(.white)
+                        .fill(Palette.surface)
                         .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
                 } else if isHovered {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.black.opacity(0.05))
+                    RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.05))
                 }
             }
             .contentShape(Rectangle())
@@ -157,6 +157,6 @@ struct Favicon: View {
             .font(.system(size: size * 0.56, weight: .bold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(isDimmed ? Color(hex: "#C7C7CC") : Color(hex: color), in: RoundedRectangle(cornerRadius: size / 4))
+            .background(isDimmed ? Palette.dimmed : Color(hex: color), in: RoundedRectangle(cornerRadius: size / 4))
     }
 }

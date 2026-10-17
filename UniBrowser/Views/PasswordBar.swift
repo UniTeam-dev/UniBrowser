@@ -66,7 +66,7 @@ struct PasswordBar: View {
             .font(.system(size: 13))
             .padding(.horizontal, 12)
             .frame(height: 38)
-            .background(Color(hex: "#F2F2F5"))
+            .background(Palette.surfaceAlt)
             .overlay(alignment: .bottom) { Divider() }
     }
 }

@@ -165,6 +165,7 @@ private struct BottomBar: View {
     let onSwitchMode: (BrowsingMode) -> Void
     let onViaMacSettings: () -> Void
     let onSendToMac: (URL) -> Void
+    @AppStorage("appearance") var appearance = Appearance.system
 
     var body: some View {
         let tab = store.selectedTab
@@ -222,6 +223,10 @@ private struct BottomBar: View {
                     if let url = tab?.url {
                         ShareLink(item: url)
                     }
+                    Picker("Оформление", systemImage: "circle.lefthalf.filled", selection: $appearance) {
+                        ForEach(Appearance.allCases, id: \.self) { Text($0.title) }
+                    }
+                    .pickerStyle(.menu)
                     Button("Настройки «Через Mac»", systemImage: "gearshape", action: onViaMacSettings)
                     if let tab {
                         Button("Обновить", systemImage: "arrow.clockwise") { tab.webView?.reload() }

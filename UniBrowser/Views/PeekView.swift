@@ -41,7 +41,7 @@ struct PeekView: View {
                 PeekWebView(webView: page.webView)
             }
             .frame(maxWidth: 760, maxHeight: 640)
-            .background(.white)
+            .background(Palette.surface)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .shadow(color: .black.opacity(0.28), radius: 32, y: 24)
             .padding(EdgeInsets(top: 40, leading: 40, bottom: 72, trailing: 40))

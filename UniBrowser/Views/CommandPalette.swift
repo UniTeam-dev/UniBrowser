@@ -122,7 +122,7 @@ struct CommandPalette: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Palette.secondaryText)
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color(hex: "#D1D1D6")))
+                        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.primary.opacity(0.15)))
                 }
                 .padding(.horizontal, 18).padding(.vertical, 16)
                 Divider()
@@ -160,10 +160,10 @@ struct CommandPalette: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Palette.secondaryText)
                 .padding(.horizontal, 18).padding(.vertical, 10)
-                .background(Color(hex: "#F2F2F5"))
+                .background(Palette.surfaceAlt)
             }
             .frame(width: 660)
-            .background(Color(red: 250 / 255, green: 250 / 255, blue: 252 / 255), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .shadow(color: .black.opacity(0.28), radius: 32, y: 24)
             .padding(.top, 96)
@@ -213,7 +213,7 @@ struct CommandPalette: View {
                 if let shortcut { Text(shortcut).font(.system(size: 12)).opacity(0.75) }
             }
         }
-        .foregroundStyle(isSelected ? .white : Color(hex: "#1D1D1F"))
+        .foregroundStyle(isSelected ? .white : Palette.text)
         .padding(.horizontal, 10).padding(.vertical, 9)
         .background(isSelected ? Palette.accent : .clear, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())

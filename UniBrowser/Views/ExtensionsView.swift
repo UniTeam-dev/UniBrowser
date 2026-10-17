@@ -152,7 +152,7 @@ private struct ExtensionButton: View {
                         .background(Color(hex: "#D93F2B"), in: Capsule())
                 }
             }
-            .background(.white.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+            .background(Palette.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
             .background(PopupAnchor { manager.popupAnchors[context.uniqueIdentifier] = $0 })
         }
         .buttonStyle(.plain)

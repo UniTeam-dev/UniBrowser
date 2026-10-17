@@ -202,12 +202,12 @@ struct SplitContent: View {
 extension View {
     /// The rounded white page card; `isActive` adds the Split View accent ring.
     func browserCard(isActive: Bool = false) -> some View {
-        background(.white)
+        background(Palette.surface)
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             .shadow(color: .black.opacity(0.08), radius: 1.5, y: 1)
             .overlay(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(isActive ? Palette.accent : .black.opacity(0.06), lineWidth: isActive ? 2 : 1)
+                    .stroke(isActive ? Palette.accent : Color.primary.opacity(0.06), lineWidth: isActive ? 2 : 1)
             )
     }
 }

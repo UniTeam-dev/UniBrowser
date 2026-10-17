@@ -63,9 +63,27 @@ extension Color {
     }
 }
 
+extension Color {
+    /// Resolves to `light` or `dark` by the appearance of the view it is drawn in.
+    init(light: String, dark: String) {
+        #if os(macOS)
+        let light = NSColor(Color(hex: light)), dark = NSColor(Color(hex: dark))
+        self.init(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light })
+        #else
+        let light = UIColor(Color(hex: light)), dark = UIColor(Color(hex: dark))
+        self.init(uiColor: UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+        #endif
+    }
+}
+
 enum Palette {
-    static let sidebar = Color(hex: "#E8E8EC")
-    static let secondaryText = Color(hex: "#5E5E63")
+    static let sidebar = Color(light: "#E8E8EC", dark: "#1C1C1F")
+    static let secondaryText = Color(light: "#5E5E63", dark: "#A1A1A6")
+    static let text = Color(light: "#1D1D1F", dark: "#F2F2F5")
+    /// Cards, the selected tab row, popovers.
+    static let surface = Color(light: "#FFFFFF", dark: "#2C2C30")
+    static let surfaceAlt = Color(light: "#F2F2F5", dark: "#232326")
+    static let dimmed = Color(light: "#C7C7CC", dark: "#48484A")
     static let accent = Color(hex: "#2563C9")
     static let spaceColors = ["#2563C9", "#E8833A", "#2E9E5B", "#6B4FD8", "#D93F2B"]
 }
