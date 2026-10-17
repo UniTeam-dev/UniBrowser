@@ -11,8 +11,13 @@ struct MainWindow: View {
                     .frame(width: 260)
                     .transition(.move(edge: .leading))
             }
-            ContentArea()
-                .padding(model.isSidebarVisible ? EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 8) : EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+            VStack(spacing: 0) {
+                if !model.isSidebarVisible {
+                    showSidebarBar
+                }
+                ContentArea()
+                    .padding(EdgeInsets(top: 8, leading: model.isSidebarVisible ? 0 : 8, bottom: 8, trailing: 8))
+            }
         }
         .background(Palette.sidebar)
         .ignoresSafeArea()
@@ -56,6 +61,24 @@ struct MainWindow: View {
                 TabSwitcherView(highlighted: index)
             }
         }
+    }
+
+    /// With the sidebar hidden, a strip beside the traffic lights keeps a way to bring it back.
+    private var showSidebarBar: some View {
+        HStack(spacing: 8) {
+            Spacer().frame(width: 64) // room for the window's traffic lights
+            Button { withAnimation(.snappy) { model.isSidebarVisible = true } } label: {
+                Image(systemName: "sidebar.left").frame(width: 22, height: 22).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Palette.secondaryText)
+            .help("Показать панель вкладок (⌃⌘S)")
+            .accessibilityLabel("Показать панель вкладок")
+            Spacer()
+        }
+        .font(.system(size: 13))
+        .frame(height: 22)
+        .padding(EdgeInsets(top: 12, leading: 10, bottom: 0, trailing: 10))
     }
 }
 
