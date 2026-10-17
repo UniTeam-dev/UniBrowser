@@ -42,6 +42,7 @@ struct PasswordsManagerView: View {
                     Text(error).font(.system(size: 12)).foregroundStyle(.red).lineLimit(2)
                 }
                 Spacer()
+                Button("Импортировать из CSV…", action: importCSV)
                 Button("Добавить…") { isAdding = true }
             }
             .padding(16)
@@ -71,6 +72,24 @@ struct PasswordsManagerView: View {
     private func copy(_ password: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(password, forType: .string)
+    }
+
+    /// Imports a CSV exported from the Passwords app (File ▸ Export All Passwords).
+    private func importCSV() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.commaSeparatedText, .text]
+        panel.message = "CSV, экспортированный из приложения «Пароли»"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            do {
+                let text = try String(contentsOf: url, encoding: .utf8)
+                let count = try await store.importCSV(text)
+                reload()
+                error = count == 0 ? "В файле не нашлось логинов." : "Импортировано: \(count)."
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
     }
 }
 

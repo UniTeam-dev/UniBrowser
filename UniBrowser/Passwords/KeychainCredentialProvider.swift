@@ -69,6 +69,14 @@ final class KeychainCredentialProvider: CredentialProvider {
         return all.sorted { ($0.host, $0.username) < ($1.host, $1.username) }
     }
 
+    /// Imports a Passwords-app CSV export into the keychain. Returns how many logins were saved.
+    @discardableResult
+    func importCSV(_ text: String) async throws -> Int {
+        let credentials = PasswordCSV.credentials(from: text)
+        for credential in credentials { try await save(credential) }
+        return credentials.count
+    }
+
     func delete(_ credential: Credential) throws {
         let match: [CFString: Any] = [
             kSecClass: kSecClassInternetPassword,
