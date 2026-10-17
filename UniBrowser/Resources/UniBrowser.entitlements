@@ -2,13 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!--
-	No App Sandbox for now: the Apple Passwords bridge launches the system
-	PasswordManagerBrowserExtensionHelper as a child process, the same way
-	Chrome and Firefox do. Revisit before any Mac App Store build.
-	-->
+	<!-- Required for the Mac App Store. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
-	<!-- The iPhone link (ViaMac) accepts the phone's connections; no sandbox, so no server entitlement is needed. -->
+	<!-- The iPhone link (ViaMac): the iroh endpoint accepts the phone's connections. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- Open panels: file uploads, CSV import, space pictures, unpacked extension folders. -->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
 </dict>
 </plist>

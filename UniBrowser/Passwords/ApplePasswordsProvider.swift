@@ -1,3 +1,5 @@
+// Direct (Developer ID) build only: launches a system helper, which App Sandbox and App Review rule out.
+#if DIRECT
 import BigInt
 import Foundation
 import Observation
@@ -371,3 +373,4 @@ final class HelperChannel {
         }
     }
 }
+#endif

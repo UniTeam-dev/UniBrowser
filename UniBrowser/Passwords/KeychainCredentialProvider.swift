@@ -2,8 +2,8 @@ import Foundation
 import Security
 
 /// Stores logins as internet-password items in the user's login keychain,
-/// labelled "UniBrowser". These do not show up in the Passwords app; this is
-/// the stopgap until the Apple Passwords bridge is allowed (see docs/passwords.md).
+/// labelled "UniBrowser". These do not show up in the Passwords app: macOS has
+/// no public API for a third-party browser to reach it (see docs/passwords.md).
 @MainActor
 final class KeychainCredentialProvider: CredentialProvider {
     private let label = "UniBrowser"

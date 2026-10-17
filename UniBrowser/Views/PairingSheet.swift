@@ -1,3 +1,5 @@
+// Direct (Developer ID) build only: launches a system helper, which App Sandbox and App Review rule out.
+#if DIRECT
 import SwiftUI
 
 /// Asks for the 6-digit code the Passwords app shows when UniBrowser pairs with it.
@@ -54,3 +56,4 @@ struct PairingSheet: View {
         }
     }
 }
+#endif

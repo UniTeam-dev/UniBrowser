@@ -12,7 +12,7 @@ final class ExtensionManager: NSObject {
     /// uniqueIdentifier, so the extension keeps its storage across launches.
     struct Record: Codable, Identifiable, Hashable {
         var id: String
-        /// An unpacked folder, or the ZIP saved from the Chrome Web Store.
+        /// A copy of an unpacked folder, or the ZIP saved from the Chrome Web Store, both in `directory`.
         var path: String
         var isEnabled = true
         var storeID: String?
@@ -81,9 +81,20 @@ final class ExtensionManager: NSObject {
 
     // MARK: - Installing
 
-    /// An unpacked extension folder (with manifest.json), loaded in place like Chrome's "Load unpacked".
+    /// An unpacked extension folder (with manifest.json). Copied into the container:
+    /// the sandbox only lets the app read the picked folder until it quits.
     func installFolder(_ url: URL) async {
-        await install(path: url.path(percentEncoded: false), storeID: nil)
+        let copy = Self.directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        do {
+            try FileManager.default.copyItem(at: url, to: copy)
+        } catch {
+            lastError = "Не удалось скопировать расширение: \(error.localizedDescription)"
+            return
+        }
+        await install(path: copy.path(percentEncoded: false), storeID: nil)
+        if !records.contains(where: { $0.path == copy.path(percentEncoded: false) }) {
+            try? FileManager.default.removeItem(at: copy)
+        }
     }
 
     /// A Chrome Web Store link or extension ID: downloads the CRX, strips its header and keeps the ZIP.
@@ -101,9 +112,13 @@ final class ExtensionManager: NSObject {
                 return
             }
             let zip = try CRX.zipPayload(of: data)
-            let file = Self.directory.appending(path: "\(id).zip")
+            // A fresh name per download, so replacing the old version can't delete this one.
+            let file = Self.directory.appending(path: "\(id)-\(UUID().uuidString).zip")
             try zip.write(to: file, options: .atomic)
             await install(path: file.path(percentEncoded: false), storeID: id)
+            if !records.contains(where: { $0.path == file.path(percentEncoded: false) }) {
+                try? FileManager.default.removeItem(at: file)
+            }
         } catch {
             lastError = "Не удалось скачать расширение: \(error.localizedDescription)"
         }
@@ -121,7 +136,10 @@ final class ExtensionManager: NSObject {
         let name = webExtension.displayName ?? "Расширение"
         guard askToInstall(webExtension, name: name) else { return }
 
-        if let existing = records.firstIndex(where: { $0.path == path || ($0.storeID != nil && $0.storeID == storeID) }) {
+        // The same store ID, or an unpacked extension with the same name, is an update.
+        if let existing = records.firstIndex(where: {
+            storeID != nil ? $0.storeID == storeID : ($0.storeID == nil && $0.name == name)
+        }) {
             remove(records[existing].id)
         }
         var record = Record(id: UUID().uuidString, path: path, storeID: storeID, name: name)
@@ -164,7 +182,8 @@ final class ExtensionManager: NSObject {
 
     func remove(_ id: String) {
         if let context = contexts.removeValue(forKey: id) { try? controller.unload(context) }
-        if let record = records.first(where: { $0.id == id }), record.storeID != nil {
+        // Only copies UniBrowser made; never a folder the extension was once loaded from in place.
+        if let record = records.first(where: { $0.id == id }), record.path.hasPrefix(Self.directory.path(percentEncoded: false)) {
             try? FileManager.default.removeItem(atPath: record.path)
         }
         records.removeAll { $0.id == id }

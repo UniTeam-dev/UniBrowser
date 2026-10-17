@@ -29,20 +29,20 @@ protocol CredentialProvider: AnyObject {
     func save(_ credential: Credential) async throws
 }
 
-/// Uses Apple Passwords when the bridge is connected, otherwise UniBrowser's
-/// own keychain items, so logins work today and move over once Apple allows it.
+/// UniBrowser's own keychain items; in the Direct build, Apple Passwords when
+/// that bridge is connected, so logins move over once Apple allows it.
 @MainActor
 final class PasswordsService: CredentialProvider {
-    let apple: ApplePasswordsProvider
-    let fallback: KeychainCredentialProvider
-
-    init(apple: ApplePasswordsProvider = .init(), fallback: KeychainCredentialProvider = .init()) {
-        self.apple = apple
-        self.fallback = fallback
-    }
+    let fallback = KeychainCredentialProvider()
+    #if DIRECT
+    let apple = ApplePasswordsProvider()
+    #endif
 
     private var active: CredentialProvider {
-        apple.state == .connected ? apple : fallback
+        #if DIRECT
+        if apple.state == .connected { return apple }
+        #endif
+        return fallback
     }
 
     var displayName: String { active.displayName }

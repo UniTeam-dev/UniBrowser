@@ -1,4 +1,4 @@
-# Как подключить UniBrowser к «Паролям» через Apple
+# Как подключить UniBrowser к «Паролям» через Apple (только сборка с сайта)
 
 ## 1. Завести аккаунт Apple Developer
 
@@ -13,7 +13,7 @@
 
 1. Пропишу Team ID в проект и включу подпись **Developer ID** и нотаризацию:
    помощник «Паролей» запускается только из нотаризованного браузера.
-2. Закреплю идентификатор приложения (сейчас `app.unibrowser.UniBrowser`).
+2. Закреплю идентификатор сборки с сайта (сейчас `app.unibrowser.UniBrowser.direct`; у App Store-сборки `app.unibrowser.UniBrowser`, её «Пароли» не касаются).
    После заявки менять его нельзя.
 3. Подготовлю заявку (pull request) в
    https://github.com/apple/password-manager-resources: новую запись в

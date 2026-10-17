@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- First sandboxed launch: macOS moves what the unsandboxed builds left in ~/Library into the container. -->
+<dict>
+	<key>Move</key>
+	<array>
+		<string>${ApplicationSupport}/UniBrowser</string>
+		<string>${Library}/Preferences/app.unibrowser.UniBrowser.plist</string>
+		<string>${Library}/WebKit/app.unibrowser.UniBrowser</string>
+		<string>${Library}/HTTPStorages/app.unibrowser.UniBrowser</string>
+	</array>
+</dict>
+</plist>
