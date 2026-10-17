@@ -17,7 +17,9 @@ cd mobile && xcodegen generate && open UniBrowserMobile.xcodeproj
 ```
 
 Для iPhone выберите свою команду в Signing & Capabilities (подойдёт бесплатный
-Apple ID) и запустите.
+Apple ID) и запустите. `mobile/build-device.sh` собирает ad-hoc `.ipa` для своего
+телефона, `mobile/build-device.sh appstore` — `.ipa` для App Store Connect; что
+нужно для подачи, см. [docs/app-store.md](../docs/app-store.md).
 
 ## Как связать с Mac
 

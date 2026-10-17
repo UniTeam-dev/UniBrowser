@@ -10,5 +10,5 @@ xcodebuild -project UniBrowserMobile.xcodeproj -scheme UniBrowserMobile -configu
   CODE_SIGNING_ALLOWED=NO build > build.log 2>&1
 status=$?
 grep -E "error:|BUILD (SUCCEEDED|FAILED)" build.log | sort -u | head -40
-[ $status -eq 0 ] && echo "Готово: build/Build/Products/Debug-iphonesimulator/UniBrowserMobile.app"
+[ $status -eq 0 ] && echo "Готово: build/Build/Products/Debug-iphonesimulator/UniBrowser.app"
 exit $status
