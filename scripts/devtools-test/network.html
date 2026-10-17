@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- Сеть / Проблемы / Безопасность test page: http://127.0.0.1:8000/network.html
+     (scripts/devtools-test/serve.sh). WebSocket echo: python3 scripts/devtools-test/ws_echo.py (port 8765, or ws_echo.py PORT and ?ws=PORT). -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'nonce-ub'; img-src 'self' data:">
+  <title>DevTools network test</title>
+  <link rel="stylesheet" href="network.css">
+  <script nonce="ub">
+    // At load, before the panel opens: must be in «Сеть» when it opens.
+    fetch('data.json?at=load').then((r) => r.json()).then((d) => console.log('fetch at load', d));
+  </script>
+</head>
+<body>
+  <h1>Сеть</h1>
+  <p>
+    <button id="fetch">fetch JSON</button>
+    <button id="post">fetch POST</button>
+    <button id="xhr">XHR POST form</button>
+    <button id="fail">fetch 404 + неудачный хост</button>
+    <button id="ws">WebSocket</button>
+    <button id="img">Картинка</button>
+  </p>
+  <img src="pixel.svg" width="32" height="32" alt="пиксель">
+  <img src="missing.png" width="32" height="32" alt="нет файла">
+  <img src="https://example.com/blocked-by-csp.png" width="1" height="1" alt="">
+  <h2>Проблемы</h2>
+  <form>
+    <input name="email" placeholder="почта без метки">
+    <label>Телефон <input name="phone"></label>
+  </form>
+  <script>console.log('this inline script has no nonce: blocked by CSP');</script>
+  <script nonce="ub">
+    document.cookie = 'ub_ok=1; path=/';
+    document.cookie = 'ub_bad=1; SameSite=None';   // no Secure: rejected
+    document.cookie = 'ub_secure=1; Secure';       // Secure on http: rejected
+    const log = (...args) => console.log(...args);
+    document.getElementById('fetch').onclick = () => fetch('data.json?n=' + Date.now()).then((r) => r.json()).then(log);
+    document.getElementById('post').onclick = () => fetch('data.json?post', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Test': 'yes' }, body: JSON.stringify({ hello: 'мир', n: 1 }),
+    }).then((r) => log('POST status', r.status));
+    document.getElementById('xhr').onclick = () => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'data.json?xhr');
+      xhr.onload = () => log('xhr', xhr.status);
+      const form = new FormData();
+      form.append('name', 'Иван');
+      form.append('city', 'Москва');
+      xhr.send(form);
+    };
+    document.getElementById('fail').onclick = () => {
+      fetch('no-such-file.json').then((r) => log('404', r.status));
+      fetch('http://127.0.0.1:9/unreachable').catch((e) => log('unreachable', e.message));
+    };
+    document.getElementById('ws').onclick = () => {
+      const ws = new WebSocket('ws://127.0.0.1:' + (new URLSearchParams(location.search).get('ws') || 8765) + '/echo');
+      ws.onopen = () => { ws.send('привет'); ws.send(JSON.stringify({ a: 1, b: [2, 3] })); setTimeout(() => ws.close(), 1500); };
+      ws.onmessage = (e) => log('ws in', e.data);
+    };
+    document.getElementById('img').onclick = () => {
+      const img = new Image();
+      img.src = 'pixel.svg?n=' + Date.now();
+      document.body.append(img);
+    };
+  </script>
+</body>
+</html>

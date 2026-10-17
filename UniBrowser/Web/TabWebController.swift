@@ -31,7 +31,17 @@ extension TabWebController: WKNavigationDelegate {
             environment?.store?.newTab(url: url, select: false)
             return (.cancel, preferences)
         }
+        // DevTools «Отключить кэш»: a reload becomes reloadFromOrigin.
+        if action.navigationType == .reload, action.targetFrame?.isMainFrame == true,
+           tab?.devTools?.network.redirectsReload(webView) == true {
+            return (.cancel, preferences)
+        }
         return (.allow, preferences)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        tab?.devTools?.network.navigationResponse(response) // DevTools «Сеть»: documents
+        return response.canShowMIMEType ? .allow : .cancel // WebKit's default
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
