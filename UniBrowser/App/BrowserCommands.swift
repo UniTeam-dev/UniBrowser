@@ -18,7 +18,7 @@ struct BrowserCommands: Commands {
         CommandMenu("Вкладки") {
             Button("Поиск по вкладкам и командам") { model.openPalette(.search) }
                 .keyboardShortcut("k")
-            Button("Открыть адрес") { model.openPalette(.search) }
+            Button("Открыть адрес") { model.openPalette(.address) }
                 .keyboardShortcut("l")
             Button("Карта вкладок") { model.openTabMap() }
                 .keyboardShortcut("m", modifiers: [.command, .shift])

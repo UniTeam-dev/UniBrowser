@@ -168,7 +168,10 @@ struct CommandPalette: View {
             .shadow(color: .black.opacity(0.28), radius: 32, y: 24)
             .padding(.top, 96)
         }
-        .onAppear { isFocused = true }
+        .onAppear {
+            if mode == .address, let url = store.selectedTab?.url { query = url.absoluteString }
+            isFocused = true
+        }
         .onChange(of: query) { selection = 0 }
     }
 

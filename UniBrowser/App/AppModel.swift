@@ -7,7 +7,8 @@ import WebKit
 @MainActor
 @Observable
 final class AppModel {
-    enum PaletteMode { case search, newTab }
+    /// `address` starts with the current page's full URL, to read, copy or edit it.
+    enum PaletteMode { case search, newTab, address }
 
     let passwords: PasswordsService
     let store: BrowserStore

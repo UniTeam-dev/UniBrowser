@@ -86,12 +86,12 @@ struct SidebarView: View {
     }
 
     private var addressButton: some View {
-        Button { model.openPalette(.search) } label: {
+        Button { model.openPalette(.address) } label: {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondaryText)
                 // The whole address minus the scheme; the middle gives way so the domain and the tail stay visible.
                 Text(store.selectedTab?.url.map { $0.absoluteString.replacingOccurrences(of: "^https?://(www\\.)?", with: "", options: .regularExpression) } ?? "Поиск или адрес")
-                    .lineLimit(1)
+                    .lineLimit(3)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("⌘K")
@@ -101,7 +101,8 @@ struct SidebarView: View {
                     .background(Palette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 4))
             }
             .padding(.horizontal, 10)
-            .frame(height: 34)
+            .padding(.vertical, 8)
+            .frame(minHeight: 34)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .contentShape(Rectangle())
         }
