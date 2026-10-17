@@ -99,7 +99,7 @@ struct SidebarView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 4) {
-            iconButton("archivebox", label: "Архив") {}
+            iconButton("archivebox", label: "Архив") { model.isArchiveVisible = true }
             Spacer()
             HStack(spacing: 10) {
                 ForEach(store.spaces) { space in

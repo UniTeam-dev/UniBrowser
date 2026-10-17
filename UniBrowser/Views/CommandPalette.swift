@@ -14,6 +14,7 @@ struct CommandPalette: View {
         case open(String)
         case tab(BrowserTab)
         case group(TabGroup)
+        case archived(ArchivedTab)
         case command(String, shortcut: String?, action: @MainActor () -> Void)
 
         var id: String {
@@ -21,6 +22,7 @@ struct CommandPalette: View {
             case .open(let text): "open:\(text)"
             case .tab(let tab): "tab:\(tab.id)"
             case .group(let group): "group:\(group.id)"
+            case .archived(let item): "archived:\(item.id)"
             case .command(let title, _, _): "cmd:\(title)"
             }
         }
@@ -40,12 +42,14 @@ struct CommandPalette: View {
             matches($0.title) || matches($0.url?.absoluteString) || matches(store.groupName(containing: $0.id))
         }
         let groups = q.isEmpty ? [] : store.activeSpace.groups.filter { matches($0.name) }
+        let archived = q.isEmpty ? [] : store.archive.filter { matches($0.title) || matches($0.url?.absoluteString) }
         var commands: [Item] = [
             .command("Новая группа", shortcut: "⌘⇧G") { store.newGroup(named: q.isEmpty ? "Новая группа" : query) },
             .command("Новое пространство", shortcut: nil) { store.newSpace(named: q.isEmpty ? "Пространство \(store.spaces.count + 1)" : query) },
         ]
         if let selected = store.activeSpace.selectedTabID {
             commands.append(.command("Закрепить или открепить вкладку", shortcut: "⌘⇧D") { store.togglePin(selected) })
+            commands.append(.command("Убрать вкладку в архив", shortcut: nil) { store.archiveTab(selected) })
             for group in store.activeSpace.groups {
                 commands.append(.command("Переместить вкладку в группу «\(group.name)»", shortcut: nil) {
                     store.move(selected, toGroup: group.id)
@@ -64,6 +68,7 @@ struct CommandPalette: View {
         if !q.isEmpty { result.append(Section(title: "Открыть", items: [.open(query)])) }
         if !tabs.isEmpty { result.append(Section(title: "Открытые вкладки", items: tabs.prefix(8).map(Item.tab))) }
         if !groups.isEmpty { result.append(Section(title: "Группы", items: groups.map(Item.group))) }
+        if !archived.isEmpty { result.append(Section(title: "Из архива", items: archived.prefix(5).map(Item.archived))) }
         if !commands.isEmpty { result.append(Section(title: "Команды", items: commands)) }
         return result
     }
@@ -162,6 +167,14 @@ struct CommandPalette: View {
                     Text("\(group.tabIDs.count) \(Plural.tabs(group.tabIDs.count))").font(.system(size: 12)).opacity(0.75)
                 }
                 Spacer()
+            case .archived(let item):
+                Image(systemName: "archivebox").frame(width: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title).font(.system(size: 14)).lineLimit(1)
+                    Text(item.url?.host() ?? "").font(.system(size: 12)).opacity(0.75).lineLimit(1)
+                }
+                Spacer()
+                Text(isSelected ? "Вернуть ↵" : "Вернуть").font(.system(size: 12)).opacity(isSelected ? 1 : 0.75)
             case .command(let title, let shortcut, _):
                 Image(systemName: "arrow.right.to.line").frame(width: 20)
                 Text(title).font(.system(size: 14))
@@ -191,6 +204,8 @@ struct CommandPalette: View {
             store.select(tab.id)
         case .group(let group):
             if let first = group.tabIDs.first { store.select(first) } else { store.toggleGroup(group.id) }
+        case .archived(let item):
+            store.restore(item.id)
         case .command(_, _, let action):
             action()
         }

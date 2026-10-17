@@ -123,6 +123,7 @@ struct TabRow: View {
             Button("Новая группа с этой вкладкой") { store.newGroup(named: "Новая группа", with: [tab.id]) }
             Divider()
             Button("Усыпить") { tab.sleep() }.disabled(tab.isAsleep || isSelected)
+            Button("В архив") { store.archiveTab(tab.id) }
             Button("Закрыть") { store.closeTab(tab.id) }
         }
     }
@@ -130,19 +131,30 @@ struct TabRow: View {
 
 /// A letter tile in a stable color per site, as in the design. Real favicons come later.
 struct Favicon: View {
-    let tab: BrowserTab
+    let url: URL?
+    var isDimmed = false
     let size: CGFloat
+
+    init(url: URL?, isDimmed: Bool = false, size: CGFloat) {
+        self.url = url
+        self.isDimmed = isDimmed
+        self.size = size
+    }
+
+    init(tab: BrowserTab, size: CGFloat) {
+        self.init(url: tab.url, isDimmed: tab.isAsleep, size: size)
+    }
 
     private static let colors = ["#24292F", "#6B4FD8", "#E8833A", "#D93F2B", "#2563C9", "#1E88C8", "#2E9E5B", "#F48024"]
 
     var body: some View {
-        let host = tab.url?.host()?.replacingOccurrences(of: "www.", with: "") ?? ""
+        let host = url?.host()?.replacingOccurrences(of: "www.", with: "") ?? ""
         let letter = host.first.map { String($0).uppercased() } ?? "•"
         let color = Self.colors[host.unicodeScalars.reduce(0) { $0 + Int($1.value) } % Self.colors.count]
         Text(letter)
             .font(.system(size: size * 0.56, weight: .bold))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(tab.isAsleep ? Color(hex: "#C7C7CC") : Color(hex: color), in: RoundedRectangle(cornerRadius: size / 4))
+            .background(isDimmed ? Color(hex: "#C7C7CC") : Color(hex: color), in: RoundedRectangle(cornerRadius: size / 4))
     }
 }

@@ -8,6 +8,8 @@ final class BrowserStore {
     var spaces: [Space]
     var activeSpaceID: UUID
     private(set) var tabs: [UUID: BrowserTab]
+    /// Newest first.
+    private(set) var archive: [ArchivedTab]
 
     @ObservationIgnored let environment: WebEnvironment
     @ObservationIgnored private var saveTask: Task<Void, Never>?
@@ -17,6 +19,7 @@ final class BrowserStore {
         if let snapshot = Self.loadSnapshot() {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
+            archive = snapshot.archive ?? []
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
                 ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated))
             })
@@ -25,6 +28,7 @@ final class BrowserStore {
             spaces = [work, Space(name: "Личное", colorHex: Palette.spaceColors[1])]
             activeSpaceID = work.id
             tabs = [:]
+            archive = []
         }
         environment.store = self
     }
@@ -127,6 +131,27 @@ final class BrowserStore {
         } else {
             newTab(url: url)
         }
+    }
+
+    // MARK: - Archive
+
+    /// Closes the tab but keeps its address in the archive.
+    func archiveTab(_ tabID: UUID) {
+        guard let tab = tabs[tabID] else { return }
+        archive.insert(ArchivedTab(url: tab.url, title: tab.displayTitle, archivedAt: .now), at: 0)
+        closeTab(tabID)
+    }
+
+    func restore(_ archivedID: UUID) {
+        guard let index = archive.firstIndex(where: { $0.id == archivedID }) else { return }
+        let item = archive.remove(at: index)
+        let tab = newTab(url: item.url)
+        tab.title = item.title
+    }
+
+    func deleteArchived(_ archivedID: UUID) {
+        archive.removeAll { $0.id == archivedID }
+        scheduleSave()
     }
 
     // MARK: - Groups
@@ -238,6 +263,8 @@ final class BrowserStore {
         var spaces: [Space]
         var activeSpaceID: UUID
         var tabs: [TabRecord]
+        /// Optional so sessions saved before the archive existed still load.
+        var archive: [ArchivedTab]?
     }
 
     private static var snapshotURL: URL {
@@ -265,7 +292,8 @@ final class BrowserStore {
         let snapshot = Snapshot(
             spaces: spaces,
             activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) }
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, lastActivated: $0.lastActivated) },
+            archive: archive
         )
         if let data = try? JSONEncoder().encode(snapshot) {
             try? data.write(to: Self.snapshotURL, options: .atomic)

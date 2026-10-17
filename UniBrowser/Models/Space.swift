@@ -22,12 +22,31 @@ struct Space: Identifiable, Codable, Hashable {
     /// Tabs under "Сегодня", newest last.
     var looseTabIDs: [UUID] = []
     var selectedTabID: UUID?
+    /// Two tabs shown side by side; nil when the space has no split.
+    var split: SplitPair?
 
     var allTabIDs: [UUID] {
         pinnedTabIDs + groups.flatMap(\.tabIDs) + looseTabIDs
     }
 
     var color: Color { Color(hex: colorHex) }
+}
+
+/// Split View: `left` and `right` tab IDs and the left pane's share of the width.
+struct SplitPair: Codable, Hashable {
+    var left: UUID
+    var right: UUID
+    var fraction: Double = 0.5
+
+    func contains(_ id: UUID) -> Bool { left == id || right == id }
+}
+
+/// A tab removed by cleanup; found again through ⌘K or the archive list.
+struct ArchivedTab: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var url: URL?
+    var title: String
+    var archivedAt: Date
 }
 
 extension Color {

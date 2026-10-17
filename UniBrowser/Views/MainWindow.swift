@@ -27,6 +27,9 @@ struct MainWindow: View {
         )) {
             PairingSheet()
         }
+        .sheet(isPresented: Bindable(model).isArchiveVisible) {
+            ArchiveView()
+        }
         .overlay {
             if let index = model.switcherIndex {
                 TabSwitcherView(highlighted: index)

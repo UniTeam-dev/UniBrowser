@@ -13,6 +13,7 @@ final class AppModel {
 
     var paletteMode: PaletteMode?
     var isSidebarVisible = true
+    var isArchiveVisible = false
     /// Index into `store.tabsByRecency` while Ctrl is held; nil when the switcher is closed.
     var switcherIndex: Int?
 
