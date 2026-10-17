@@ -65,9 +65,12 @@ struct GroupSection: View {
     }
 }
 
+/// A tab in the sidebar list, or with `isCompact` just its icon in the narrow sidebar
+/// (title as a tooltip, the same menu and drag and drop).
 struct TabRow: View {
     @Environment(BrowserStore.self) private var store
     let tab: BrowserTab
+    var isCompact = false
     @State private var isHovered = false
     @State private var isDropTarget = false
     @State private var isRenaming = false
@@ -78,54 +81,13 @@ struct TabRow: View {
 
     var body: some View {
         Button { store.select(tab.id) } label: {
-            HStack(spacing: 8) {
-                Favicon(tab: tab, size: 16)
-                if isRenaming {
-                    TextField(tab.title.isEmpty ? "Название" : tab.title, text: $draftName)
-                        .textFieldStyle(.plain)
-                        .onSubmit {
-                            store.renameTab(tab.id, to: draftName)
-                            isRenaming = false
-                        }
-                        .onExitCommand { isRenaming = false }
-                        .focused($isNameFocused)
-                        .onAppear { isNameFocused = true }
-                        .onChange(of: isNameFocused) { if !isNameFocused { isRenaming = false } }
+            Group {
+                if isCompact {
+                    Favicon(tab: tab, size: 16).frame(width: 32, height: 32)
                 } else {
-                    Text(tab.displayTitle)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
-                }
-                if tab.isPlayingAudio {
-                    Image(systemName: "speaker.wave.2")
-                        .foregroundStyle(Palette.accent)
-                        .accessibilityLabel("Играет звук")
-                }
-                if isHovered {
-                    Button { store.closeTab(tab.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Palette.secondaryText)
-                        .accessibilityLabel("Закрыть вкладку")
-                } else if tab.isAsleep && !isSelected {
-                    Text("спит").font(.system(size: 11)).foregroundStyle(Color(hex: "#8E8E93"))
-                }
-                // Last, so the hover close button appears beside it instead of in its place.
-                if tab.isAwayFromPin {
-                    Button { store.returnToPin(tab.id) } label: { Text("📌").font(.system(size: 11)) }
-                        .buttonStyle(.plain)
-                        .help("Вернуть на закреплённую страницу")
-                        .accessibilityLabel("Вернуть на закреплённую страницу")
-                } else if tab.pinnedURL != nil && store.isInGroup(tab.id) {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Palette.secondaryText)
-                        .accessibilityLabel("Закреплена в папке")
+                    row
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 30)
             .background {
                 if isSelected {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -138,6 +100,11 @@ struct TabRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(isCompact ? tab.displayTitle : "")
+        // No room for the name field in the narrow sidebar, so renaming happens in a popover.
+        .popover(isPresented: isCompact ? $isRenaming : .constant(false), arrowEdge: .trailing) {
+            nameField.frame(width: 220).padding(10)
+        }
         .onHover { isHovered = $0 }
         .draggable(tab.id.uuidString)
         .dropDestination(for: String.self) { items, _ in
@@ -173,6 +140,61 @@ struct TabRow: View {
             Button("В архив") { store.archiveTab(tab.id) }
             Button("Закрыть") { store.closeTab(tab.id) }
         }
+    }
+
+    private var row: some View {
+        HStack(spacing: 8) {
+            Favicon(tab: tab, size: 16)
+            if isRenaming {
+                nameField
+            } else {
+                Text(tab.displayTitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
+            }
+            if tab.isPlayingAudio {
+                Image(systemName: "speaker.wave.2")
+                    .foregroundStyle(Palette.accent)
+                    .accessibilityLabel("Играет звук")
+            }
+            if isHovered {
+                Button { store.closeTab(tab.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.secondaryText)
+                    .accessibilityLabel("Закрыть вкладку")
+            } else if tab.isAsleep && !isSelected {
+                Text("спит").font(.system(size: 11)).foregroundStyle(Color(hex: "#8E8E93"))
+            }
+            // Last, so the hover close button appears beside it instead of in its place.
+            if tab.isAwayFromPin {
+                Button { store.returnToPin(tab.id) } label: { Text("📌").font(.system(size: 11)) }
+                    .buttonStyle(.plain)
+                    .help("Вернуть на закреплённую страницу")
+                    .accessibilityLabel("Вернуть на закреплённую страницу")
+            } else if tab.pinnedURL != nil && store.isInGroup(tab.id) {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Palette.secondaryText)
+                    .accessibilityLabel("Закреплена в папке")
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 30)
+    }
+
+    private var nameField: some View {
+        TextField(tab.title.isEmpty ? "Название" : tab.title, text: $draftName)
+            .textFieldStyle(.plain)
+            .onSubmit {
+                store.renameTab(tab.id, to: draftName)
+                isRenaming = false
+            }
+            .onExitCommand { isRenaming = false }
+            .focused($isNameFocused)
+            .onAppear { isNameFocused = true }
+            .onChange(of: isNameFocused) { if !isNameFocused { isRenaming = false } }
     }
 }
 

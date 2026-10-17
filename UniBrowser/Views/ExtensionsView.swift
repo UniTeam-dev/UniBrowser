@@ -107,7 +107,7 @@ struct ExtensionsView: View {
     }
 }
 
-/// Extension buttons under the address field; a click runs the extension's action or opens its popup.
+/// Extension buttons at the end of the address strip; a click runs the extension's action or opens its popup.
 struct ExtensionBar: View {
     let manager: ExtensionManager
 
@@ -118,9 +118,7 @@ struct ExtensionBar: View {
                 ForEach(items, id: \.id) { item in
                     ExtensionButton(manager: manager, id: item.id, context: item.context)
                 }
-                Spacer()
             }
-            .padding(.horizontal, 4)
         }
     }
 }
