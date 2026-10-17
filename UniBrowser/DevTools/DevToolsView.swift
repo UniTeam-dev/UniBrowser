@@ -364,12 +364,12 @@ struct DevToolsView: View {
             DevToolsCommand(title: consoleGroupSimilar ? "Не группировать похожие сообщения" : "Группировать похожие сообщения", group: "Консоль") {
                 consoleGroupSimilar.toggle()
             },
-            // merge: wire to the Console/Network preserve-log switch (it starts from this default).
-            DevToolsCommand(title: preserveLog ? "Не сохранять журнал при переходе" : "Сохранять журнал при переходе", group: "Консоль и сеть") {
-                preserveLog.toggle()
+            DevToolsCommand(title: session.network.preserveLog ? "Не сохранять журнал при переходе" : "Сохранять журнал при переходе", group: "Консоль и сеть") {
+                session.network.preserveLog.toggle() // one setting for Консоль and Сеть
             },
-            // merge: wire to the Network «Отключить кэш» switch (it starts from this default).
-            DevToolsCommand(title: disableCache ? "Включить кэш" : "Отключить кэш", group: "Сеть") { disableCache.toggle() },
+            DevToolsCommand(title: session.network.disableCache ? "Включить кэш" : "Отключить кэш", group: "Сеть") {
+                session.network.disableCache.toggle()
+            },
             DevToolsCommand(title: "Жёсткая перезагрузка", group: "Страница", shortcut: "⇧⌘R") { session.webView?.reloadFromOrigin() },
             DevToolsCommand(title: session.performance.isRecording ? "Остановить запись производительности" : "Записать производительность", group: "Производительность") {
                 session.panel = .performance

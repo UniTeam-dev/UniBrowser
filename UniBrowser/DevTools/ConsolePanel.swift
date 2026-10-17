@@ -215,7 +215,7 @@ final class ConsoleModel {
         Set(UserDefaults.standard.stringArray(forKey: "devToolsConsoleLevels") ?? ["error", "warn", "info"])
     }
 
-    private var preserveLog: Bool { UserDefaults.standard.bool(forKey: "devToolsConsolePreserve") }
+    private var preserveLog: Bool { UserDefaults.standard.bool(forKey: "devToolsPreserveLog") }
     private var groupSimilar: Bool { UserDefaults.standard.object(forKey: "devToolsConsoleGroupSimilar") as? Bool ?? true }
 
     func bind(_ session: DevToolsSession) {
@@ -588,7 +588,7 @@ extension Color {
 struct ConsolePanel: View {
     @Bindable var session: DevToolsSession
     @AppStorage("devToolsConsoleTimestamps") private var timestamps = false
-    @AppStorage("devToolsConsolePreserve") private var preserve = false
+    @AppStorage("devToolsPreserveLog") private var preserve = false
     @AppStorage("devToolsConsoleGroupSimilar") private var groupSimilar = true
 
     private var model: ConsoleModel { session.console }

@@ -954,7 +954,10 @@ struct SourcesPanel: View {
                             findToken: model.findToken,
                             onEdit: nil,
                             onRun: nil,
-                            onGutter: { line in model.debugInWebInspector(file, line: line) }
+                            onGutter: { line in model.debugInWebInspector(file, line: line) },
+                            // Покрытие: red bars on CSS lines no element used during the recording.
+                            unusedLines: file.kind == .style && !model.prettyPrinted
+                                ? session.coverage.unusedLines(url: file.url, inline: file.inline) : []
                         )
                     }
                 } else {
@@ -1014,6 +1017,8 @@ private struct CodeView: NSViewRepresentable {
     let onRun: (() -> Void)?
     /// A click in the gutter: offer «Отладить в Web Inspector» for that line.
     let onGutter: ((Int) -> Void)?
+    /// 1-based line ranges marked unused by «Покрытие».
+    var unusedLines: [ClosedRange<Int>] = []
 
     /// Colouring cost grows with size; bigger files are shown plain.
     private static let maxColoured = 1_500_000
@@ -1054,6 +1059,7 @@ private struct CodeView: NSViewRepresentable {
         scroll.documentView = textView
         let ruler = LineNumberRuler(scrollView: scroll, textView: textView)
         ruler.onClick = onGutter
+        ruler.unused = unusedLines
         scroll.verticalRulerView = ruler
         scroll.hasVerticalRuler = true
         scroll.rulersVisible = true
@@ -1071,6 +1077,7 @@ private struct CodeView: NSViewRepresentable {
         coordinator.language = language
         textView.onRun = onRun
         (scroll.verticalRulerView as? LineNumberRuler)?.onClick = onGutter
+        if let ruler = scroll.verticalRulerView as? LineNumberRuler, ruler.unused != unusedLines { ruler.unused = unusedLines }
         if coordinator.text != text { apply(text, to: textView, coordinator: coordinator) }
         if let reveal, reveal.token != coordinator.revealToken {
             coordinator.revealToken = reveal.token
@@ -1169,6 +1176,7 @@ private final class CodeTextView: NSTextView {
 /// Line numbers beside a TextKit 1 text view; a click offers «Отладить в Web Inspector».
 private final class LineNumberRuler: NSRulerView {
     var onClick: ((Int) -> Void)?
+    var unused: [ClosedRange<Int>] = [] { didSet { needsDisplay = true } }
     private var lineStarts: [Int] = [0]
     private weak var textView: NSTextView?
 
@@ -1222,6 +1230,10 @@ private final class LineNumberRuler: NSRulerView {
                 ? layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: start), effectiveRange: nil)
                 : layout.extraLineFragmentRect
             let y = convert(NSPoint(x: 0, y: fragment.minY + textView.textContainerOrigin.y), from: textView).y
+            if unused.contains(where: { $0.contains(index + 1) }) {
+                NSColor.systemRed.setFill()
+                NSRect(x: bounds.maxX - 4, y: y, width: 3, height: fragment.height).fill()
+            }
             let label = NSAttributedString(string: "\(index + 1)", attributes: attributes)
             let size = label.size()
             label.draw(at: NSPoint(x: bounds.maxX - size.width - 6, y: y + (fragment.height - size.height) / 2))

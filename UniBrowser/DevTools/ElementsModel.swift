@@ -96,6 +96,11 @@ final class ElementsModel {
 
     func bind(_ session: DevToolsSession) {
         self.session = session
+        // inspect(node) and clicking a node in the console select it here.
+        session.console.onInspect = { [weak self, weak session] frame, handle in
+            session?.panel = .elements
+            Task { await self?.reveal(DOMKey(frame: frame, handle: handle)) }
+        }
         session.on("hello") { [weak self] message in
             if message["isTop"] as? Bool == true { self?.reset() }
         }
@@ -257,6 +262,7 @@ final class ElementsModel {
         guard let key else { return }
         selected = key
         selectedHandles = Array(([key] + selectedHandles.filter { $0 != key }).prefix(5))
+        session?.console.setSelection(frame: key.frame, handle: key.handle) // the console's $0
         revision += 1
     }
 
