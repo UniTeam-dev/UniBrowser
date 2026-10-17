@@ -24,12 +24,52 @@ enum DevToolsDockSide: String, CaseIterable, Identifiable {
     }
 }
 
+/// UserDefaults keys of the panel settings (gear popover, spec «Opening and layout»). Panels
+/// read them with `@AppStorage(DevToolsSettings.x)` and the default written next to each key.
+enum DevToolsSettings {
+    /// `DevToolsDockSide` raw value; default `.bottom`.
+    static let dock = "devToolsDock"
+    /// Bool, default false: Консоль shows each message's time.
+    static let consoleTimestamps = "devToolsConsoleTimestamps"
+    /// Bool, default true: Консоль folds identical consecutive messages into one with a count.
+    static let consoleGroupSimilar = "devToolsConsoleGroupSimilar"
+    /// Bool, default false: what «Сохранять при переходе» starts as in Консоль and Сеть.
+    static let preserveLog = "devToolsPreserveLog"
+    /// Bool, default false: what «Отключить кэш» starts as in Сеть.
+    static let disableCache = "devToolsDisableCache"
+    /// Double, default `defaultFontSize`: text size of panel contents. Also given to panels
+    /// as `@Environment(\.devToolsFontSize)` and as the default `.font`.
+    static let fontSize = "devToolsFontSize"
+    static let defaultFontSize = 11.0
+    static let fontSizes = 9.0...20.0
+    /// Comma-separated `DevToolsPanel` raw values, the header's tab order; empty = default.
+    static let tabOrder = "devToolsTabOrder"
+
+    /// The stored order, with panels it doesn't know (added later) at their default place.
+    static func panels(order: String) -> [DevToolsPanel] {
+        var result: [DevToolsPanel] = []
+        for name in order.split(separator: ",") {
+            if let panel = DevToolsPanel(rawValue: String(name)), !result.contains(panel) { result.append(panel) }
+        }
+        for panel in DevToolsPanel.allCases where !result.contains(panel) {
+            let index = DevToolsPanel.allCases.firstIndex(of: panel) ?? result.count
+            result.insert(panel, at: min(index, result.count))
+        }
+        return result
+    }
+}
+
+extension EnvironmentValues {
+    /// Text size of panel contents (`DevToolsSettings.fontSize`).
+    @Entry var devToolsFontSize = DevToolsSettings.defaultFontSize
+}
+
 /// Puts a tab's open developer tools beside its page: below, to the right with a
 /// draggable divider, or in a separate window.
 struct DevToolsDock<Content: View>: View {
     let tab: BrowserTab
     @ViewBuilder let content: Content
-    @AppStorage("devToolsDock") private var side = DevToolsDockSide.bottom
+    @AppStorage(DevToolsSettings.dock) private var side = DevToolsDockSide.bottom
     @AppStorage("devToolsHeight") private var height = 300.0
     @AppStorage("devToolsWidth") private var width = 460.0
     @State private var dragStart: Double?
@@ -123,18 +163,37 @@ enum DevToolsWindow {
 struct DevToolsView: View {
     @Bindable var session: DevToolsSession
     let tab: BrowserTab
-    @AppStorage("devToolsDock") private var side = DevToolsDockSide.bottom
+    @AppStorage(DevToolsSettings.dock) private var side = DevToolsDockSide.bottom
+    @AppStorage(DevToolsSettings.tabOrder) private var tabOrder = ""
+    @AppStorage(DevToolsSettings.fontSize) private var fontSize = DevToolsSettings.defaultFontSize
+    @AppStorage(DevToolsSettings.consoleTimestamps) private var consoleTimestamps = false
+    @AppStorage(DevToolsSettings.consoleGroupSimilar) private var consoleGroupSimilar = true
+    @AppStorage(DevToolsSettings.preserveLog) private var preserveLog = false
+    @AppStorage(DevToolsSettings.disableCache) private var disableCache = false
     @State private var isSettingsVisible = false
+    @State private var isCommandMenuVisible = false
+    @State private var draggedPanel: DevToolsPanel?
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             panel
+                .font(.system(size: fontSize))
+                .environment(\.devToolsFontSize, fontSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Palette.surface)
+        .background(PanelKeyMonitor { isCommandMenuVisible = true })
+        .overlay(alignment: .top) {
+            if isCommandMenuVisible {
+                DevToolsCommandMenu(commands: commands) { isCommandMenuVisible = false }
+                    .padding(.top, 32)
+            }
+        }
     }
+
+    private var panels: [DevToolsPanel] { DevToolsSettings.panels(order: tabOrder) }
 
     private var header: some View {
         HStack(spacing: 2) {
@@ -156,6 +215,9 @@ struct DevToolsView: View {
                     if let webView = session.webView { WebInspector.show(webView) }
                 }
                 .help("Открыть Web Inspector WebKit (⌥⌘U)")
+                Button { isCommandMenuVisible = true } label: { Image(systemName: "command") }
+                    .help("Командное меню (⇧⌘P)")
+                    .accessibilityLabel("Командное меню")
                 Button { isSettingsVisible.toggle() } label: { Image(systemName: "gearshape") }
                     .help("Настройки")
                     .accessibilityLabel("Настройки")
@@ -185,7 +247,7 @@ struct DevToolsView: View {
     }
 
     private func tabStrip(visible: Int) -> some View {
-        let all = DevToolsPanel.allCases
+        let all = panels
         return HStack(spacing: 0) {
             ForEach(all.prefix(visible)) { panel in
                 Button { session.panel = panel } label: {
@@ -199,6 +261,13 @@ struct DevToolsView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(session.panel == panel ? Palette.text : Palette.secondaryText)
+                .opacity(draggedPanel == panel ? 0.5 : 1)
+                // Drag a tab onto another to reorder (spec «Opening and layout»); remembered.
+                .onDrag {
+                    draggedPanel = panel
+                    return NSItemProvider(object: panel.rawValue as NSString)
+                }
+                .onDrop(of: [.text], delegate: TabDropDelegate(target: panel, dragged: $draggedPanel, move: move))
             }
             if visible < all.count {
                 Menu("»") {
@@ -214,16 +283,35 @@ struct DevToolsView: View {
         .fixedSize()
     }
 
-    // ponytail: reordering tabs by drag (spec) is not done yet; add when someone misses it.
+    private func move(_ panel: DevToolsPanel, to target: DevToolsPanel) {
+        var order = panels
+        guard let from = order.firstIndex(of: panel), let to = order.firstIndex(of: target), from != to else { return }
+        order.move(fromOffsets: [from], toOffset: to > from ? to + 1 : to)
+        tabOrder = order.map(\.rawValue).joined(separator: ",")
+    }
 
     private var settings: some View {
         Form {
-            Picker("Расположение", selection: $side) {
-                ForEach(DevToolsDockSide.allCases) { Text($0.title).tag($0) }
+            Section("Консоль") {
+                Toggle("Показывать время сообщений", isOn: $consoleTimestamps)
+                Toggle("Группировать похожие сообщения", isOn: $consoleGroupSimilar)
+                Toggle("Сохранять журнал при переходе", isOn: $preserveLog)
+            }
+            Section("Сеть") {
+                Toggle("Сохранять журнал при переходе", isOn: $preserveLog)
+                Toggle("Отключать кэш, пока панель открыта", isOn: $disableCache)
+            }
+            Section("Панель") {
+                Picker("Расположение", selection: $side) {
+                    ForEach(DevToolsDockSide.allCases) { Text($0.title).tag($0) }
+                }
+                Stepper("Размер шрифта: \(Int(fontSize)) пт", value: $fontSize, in: DevToolsSettings.fontSizes)
+                Button("Вернуть порядок вкладок") { tabOrder = "" }
+                    .disabled(tabOrder.isEmpty)
             }
         }
-        .padding(16)
-        .frame(width: 300)
+        .formStyle(.grouped)
+        .frame(width: 340)
     }
 
     @ViewBuilder private var panel: some View {
@@ -239,6 +327,227 @@ struct DevToolsView: View {
         case .security: SecurityPanel(session: session)
         case .coverage: CoveragePanel(session: session)
         case .changes: ChangesPanel(session: session)
+        }
+    }
+
+    // MARK: Command menu (⇧⌘P)
+
+    /// What ⇧⌘P offers. Entries marked «merge:» toggle the shared default until the panel
+    /// that owns the feature exposes its own switch; wire them to it when merging.
+    private var commands: [DevToolsCommand] {
+        var list: [DevToolsCommand] = panels.map { panel in
+            DevToolsCommand(title: "Показать панель «\(panel.title)»", group: "Панель") { session.panel = panel }
+        }
+        list += DevToolsDockSide.allCases.map { dock in
+            DevToolsCommand(title: "Расположение: \(dock.title.lowercased())", group: "Вид") { side = dock }
+        }
+        list += [
+            DevToolsCommand(title: tab.deviceMode.isOn ? "Выключить режим устройства" : "Включить режим устройства", group: "Вид", shortcut: "⇧⌘M") {
+                tab.deviceMode.isOn.toggle()
+            },
+            DevToolsCommand(title: "Выбрать элемент на странице", group: "Элементы", shortcut: "⇧⌘C") {
+                session.panel = .elements
+                session.elements.pick()
+            },
+            DevToolsCommand(title: "Очистить консоль", group: "Консоль") { session.console.clear() },
+            DevToolsCommand(title: consoleTimestamps ? "Скрыть время сообщений" : "Показывать время сообщений", group: "Консоль") {
+                consoleTimestamps.toggle()
+            },
+            DevToolsCommand(title: consoleGroupSimilar ? "Не группировать похожие сообщения" : "Группировать похожие сообщения", group: "Консоль") {
+                consoleGroupSimilar.toggle()
+            },
+            // merge: wire to the Console/Network preserve-log switch (it starts from this default).
+            DevToolsCommand(title: preserveLog ? "Не сохранять журнал при переходе" : "Сохранять журнал при переходе", group: "Консоль и сеть") {
+                preserveLog.toggle()
+            },
+            // merge: wire to the Network «Отключить кэш» switch (it starts from this default).
+            DevToolsCommand(title: disableCache ? "Включить кэш" : "Отключить кэш", group: "Сеть") { disableCache.toggle() },
+            DevToolsCommand(title: "Жёсткая перезагрузка", group: "Страница", shortcut: "⇧⌘R") { session.webView?.reloadFromOrigin() },
+            DevToolsCommand(title: session.performance.isRecording ? "Остановить запись производительности" : "Записать производительность", group: "Производительность") {
+                session.panel = .performance
+                Task { session.performance.isRecording ? await session.performance.stop() : await session.performance.start() }
+            },
+            DevToolsCommand(title: "Перезагрузить и записать производительность", group: "Производительность") {
+                session.panel = .performance
+                session.performance.reloadAndRecord()
+            },
+            DevToolsCommand(title: session.coverage.isRecording ? "Остановить запись покрытия" : "Записать покрытие CSS", group: "Покрытие") {
+                session.panel = .coverage
+                Task { session.coverage.isRecording ? await session.coverage.stop() : await session.coverage.start() }
+            },
+            DevToolsCommand(title: "Открыть Web Inspector", group: "Web Inspector", shortcut: "⌥⌘U") {
+                if let webView = session.webView { WebInspector.show(webView) }
+            },
+            DevToolsCommand(title: "Профиль JavaScript и память в Web Inspector", group: "Web Inspector") {
+                if let webView = session.webView { WebInspector.profile(webView) }
+            },
+            DevToolsCommand(title: "Увеличить шрифт панели", group: "Вид") {
+                fontSize = min(fontSize + 1, DevToolsSettings.fontSizes.upperBound)
+            },
+            DevToolsCommand(title: "Уменьшить шрифт панели", group: "Вид") {
+                fontSize = max(fontSize - 1, DevToolsSettings.fontSizes.lowerBound)
+            },
+            DevToolsCommand(title: "Обычный размер шрифта панели", group: "Вид") { fontSize = DevToolsSettings.defaultFontSize },
+            DevToolsCommand(title: "Вернуть порядок вкладок", group: "Вид") { tabOrder = "" },
+            DevToolsCommand(title: "Настройки инструментов разработчика", group: "Вид") { isSettingsVisible = true },
+            DevToolsCommand(title: "Закрыть инструменты разработчика", group: "Вид", shortcut: "F12") { session.close() },
+        ]
+        return list
+    }
+}
+
+/// Live reorder while a tab is dragged over another.
+private struct TabDropDelegate: DropDelegate {
+    let target: DevToolsPanel
+    @Binding var dragged: DevToolsPanel?
+    let move: (DevToolsPanel, DevToolsPanel) -> Void
+
+    func dropEntered(info: DropInfo) {
+        if let dragged, dragged != target { move(dragged, target) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragged = nil
+        return true
+    }
+}
+
+/// One entry of the ⇧⌘P menu.
+struct DevToolsCommand: Identifiable {
+    var id: String { title }
+    let title: String
+    let group: String
+    var shortcut: String?
+    let run: () -> Void
+}
+
+/// The panel's command menu: type to filter, ↑/↓ to choose, ↩ to run, Esc to close.
+private struct DevToolsCommandMenu: View {
+    let commands: [DevToolsCommand]
+    let dismiss: () -> Void
+    @State private var query = ""
+    @State private var index = 0
+    @FocusState private var isFocused: Bool
+
+    /// Every word of the query is in the title or the group.
+    private var matches: [DevToolsCommand] {
+        let words = query.lowercased().split(separator: " ")
+        return commands.filter { command in
+            let text = (command.title + " " + command.group).lowercased()
+            return words.allSatisfy { text.contains($0) }
+        }
+    }
+
+    var body: some View {
+        let matches = matches
+        VStack(spacing: 0) {
+            TextField("Команда или панель", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .padding(8)
+                .focused($isFocused)
+                .onSubmit { run(matches) }
+                .onKeyPress(.downArrow) { index = min(index + 1, max(matches.count - 1, 0)); return .handled }
+                .onKeyPress(.upArrow) { index = max(index - 1, 0); return .handled }
+                .onKeyPress(.escape) { dismiss(); return .handled }
+                .onChange(of: query) { index = 0 }
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(matches.enumerated()), id: \.element.id) { offset, command in
+                            HStack {
+                                Text(command.group).foregroundStyle(.secondary).frame(width: 120, alignment: .leading).lineLimit(1)
+                                Text(command.title).lineLimit(1)
+                                Spacer()
+                                if let shortcut = command.shortcut { Text(shortcut).foregroundStyle(.secondary) }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(offset == index ? Palette.accent.opacity(0.2) : .clear)
+                            .contentShape(Rectangle())
+                            .onTapGesture { index = offset; run(matches) }
+                            .id(offset)
+                        }
+                        if matches.isEmpty {
+                            Text("Ничего не найдено").foregroundStyle(.secondary).padding(8)
+                        }
+                    }
+                }
+                .onChange(of: index) { proxy.scrollTo(index) }
+            }
+            .frame(maxHeight: 280)
+        }
+        .font(.system(size: 12))
+        .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).stroke(Palette.dimmed) }
+        .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+        .onAppear { isFocused = true }
+        .onExitCommand(perform: dismiss)
+        .onChange(of: isFocused) { _, focused in if !focused { dismiss() } }
+    }
+
+    private func run(_ matches: [DevToolsCommand]) {
+        guard matches.indices.contains(index) else { return }
+        dismiss()
+        matches[index].run()
+    }
+}
+
+/// ⇧⌘P while the panel has focus (spec «Opening and layout»): the last click in this window
+/// was inside the panel, or the panel is the whole window. Elsewhere ⇧⌘P stays the menu's.
+/// A local monitor runs before menu key equivalents, so it wins only in that case.
+private struct PanelKeyMonitor: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> MonitorView {
+        let view = MonitorView()
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ view: MonitorView, context: Context) { view.action = action }
+
+    final class MonitorView: NSView {
+        var action: () -> Void = {}
+        private var monitor: Any?
+        private var hasFocus = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            hasFocus = false
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { [weak self] event in
+                self?.handle(event) ?? event
+            }
+        }
+
+        override func removeFromSuperview() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            super.removeFromSuperview()
+        }
+
+        private func handle(_ event: NSEvent) -> NSEvent? {
+            guard let window, event.window === window else { return event }
+            let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+            if event.type == .leftMouseDown {
+                hasFocus = inside
+                return event
+            }
+            let isWholeWindow = window.contentView.map { bounds.size == $0.bounds.size } ?? false
+            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command, .shift],
+                  event.charactersIgnoringModifiers?.lowercased() == "p",
+                  hasFocus || isWholeWindow
+            else { return event }
+            action()
+            return nil
         }
     }
 }

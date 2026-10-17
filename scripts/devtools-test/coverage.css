@@ -1,0 +1,29 @@
+/* Покрытие test sheet. Used at start: .used, button. Unused: .never-1, .never-2, the
+   @media block's .never-3. Used after «Добавить .late-used»: .late-used. Used on hover:
+   .hover-target:hover. */
+.used { font-family: system-ui, sans-serif; }
+
+button { margin: 4px; }
+
+.never-1 {
+  color: red;
+  background: yellow;
+}
+
+.never-2,
+.never-2b {
+  border: 1px solid red;
+}
+
+@media (min-width: 1px) {
+  .never-3 { outline: 2px dashed red; }
+  .used { letter-spacing: 0.01em; }
+}
+
+.late-used { color: green; font-weight: bold; }
+
+.hover-target:hover { color: orange; }
+
+h1::after { content: " ✓"; }
+
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
