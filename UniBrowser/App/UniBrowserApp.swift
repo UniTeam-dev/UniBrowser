@@ -12,7 +12,6 @@ struct UniBrowserApp: App {
                 .environment(model)
                 .environment(model.store)
                 .frame(minWidth: 820, minHeight: 520)
-                .task { await model.passwords.apple.probe() }
                 .onAppear { appDelegate.model = model; appearance.apply() }
                 .onChange(of: appearance) { appearance.apply() }
         }

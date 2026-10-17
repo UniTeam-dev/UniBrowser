@@ -9,7 +9,7 @@ import WebKit
 final class AppModel {
     enum PaletteMode { case search, newTab }
 
-    let passwords: PasswordsService
+    let passwords: KeychainCredentialProvider
     let store: BrowserStore
     /// The link to paired iPhones: their proxy and the live mirror of this session.
     let viaMac = ViaMacHost()
@@ -40,10 +40,10 @@ final class AppModel {
     @ObservationIgnored private var lastConsumedKeyTimestamp: TimeInterval = 0
 
     init() {
-        let passwords = PasswordsService()
+        let passwords = KeychainCredentialProvider()
         self.passwords = passwords
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords))
-        viaMac.attach(store: store, passwords: passwords.fallback)
+        viaMac.attach(store: store, passwords: passwords)
         installTabSwitcherMonitor()
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
         Task { [weak self] in

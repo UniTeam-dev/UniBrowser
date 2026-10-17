@@ -27,15 +27,6 @@ struct PasswordBar: View {
                 .buttonStyle(.borderedProminent)
                 .tint(Palette.accent)
             }
-        } else if tab.hasLoginForm && model.passwords.apple.state == .readyToPair {
-            bar {
-                Image(systemName: "key.fill").foregroundStyle(Palette.accent)
-                Text("Подключите «Пароли», чтобы подставлять и сохранять пароли из iCloud")
-                Spacer()
-                Button("Подключить") { Task { await model.passwords.apple.beginPairing() } }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Palette.accent)
-            }
         } else if !tab.loginOffers.isEmpty {
             bar {
                 Image(systemName: "key.fill").foregroundStyle(Palette.accent)
