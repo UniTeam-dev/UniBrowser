@@ -186,6 +186,11 @@ final class AppModel {
         paletteMode = mode
     }
 
+    /// F12 and ⌥⌘I: the selected tab's developer tools.
+    func toggleDevTools() {
+        store.selectedTab?.devTools?.toggle()
+    }
+
     // MARK: - Ctrl+Tab by recency
 
     /// Ctrl+Tab opens the switcher on the previous tab, each further Tab moves on,
@@ -224,6 +229,9 @@ final class AppModel {
         case .leftMouseDown:
             activateSplitPane(for: event)
             return event
+        case .keyDown where event.keyCode == 111 && event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]): // F12
+            toggleDevTools()
+            return nil
         case .keyDown where event.keyCode == 48 && event.modifierFlags.contains(.control): // Tab
             guard tabs.count > 1 else { return nil }
             let step = event.modifierFlags.contains(.shift) ? -1 : 1

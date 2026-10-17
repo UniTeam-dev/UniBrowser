@@ -1,0 +1,28 @@
+<!doctype html>
+<!-- DevTools test page. Serve with scripts/devtools-test/serve.sh, open http://127.0.0.1:8000.
+     The iframe comes from port 8001, so it is cross-origin. Panels add their cases here. -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>DevTools test</title>
+  <script>
+    // Logged at load, before the panel is open: must appear when it opens.
+    console.log('main: load log', 42, { nested: { deep: [1, 2, 3] } });
+    console.info('main: load info');
+    console.warn('main: load warn');
+    console.error('main: load error');
+    console.debug('main: load debug');
+    // Logged later, typically after the panel is open: must stream in.
+    setTimeout(() => console.log('main: timer log after 5 s'), 5000);
+  </script>
+</head>
+<body>
+  <h1>DevTools test</h1>
+  <button id="log" onclick="console.log('main: click', new Date().toISOString())">Лог из страницы</button>
+  <p>Cross-origin iframe (port 8001):</p>
+  <iframe id="child" width="600" height="160"></iframe>
+  <script>
+    document.getElementById('child').src = location.protocol + '//' + location.hostname + ':8001/frame.html';
+  </script>
+</body>
+</html>

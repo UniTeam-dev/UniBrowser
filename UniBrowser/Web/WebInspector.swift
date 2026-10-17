@@ -15,6 +15,10 @@ enum WebInspector {
         send(isVisible ? "close" : "show", to: webView)
     }
 
+    static func show(_ webView: WKWebView) {
+        send("show", to: webView)
+    }
+
     static func showConsole(_ webView: WKWebView) {
         send("showConsole", to: webView)
     }

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>DevTools test frame</title>
+  <script>
+    console.log('frame: load log', location.origin);
+    console.warn('frame: load warn');
+    // Logged later, typically after the panel is open: must stream in.
+    setTimeout(() => console.log('frame: timer log after 5 s'), 5000);
+  </script>
+</head>
+<body>
+  <button id="log" onclick="console.log('frame: click', new Date().toISOString())">Лог из iframe</button>
+</body>
+</html>

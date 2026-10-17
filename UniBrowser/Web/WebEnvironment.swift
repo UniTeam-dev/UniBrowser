@@ -27,7 +27,7 @@ final class WebEnvironment {
         return configuration
     }
 
-    func makeConfiguration(for controller: TabWebController) -> WKWebViewConfiguration {
+    func makeConfiguration(for controller: TabWebController, devTools: DevToolsSession) -> WKWebViewConfiguration {
         let configuration = makeBaseConfiguration()
         // Lets installed extensions inject content scripts into tabs.
         configuration.webExtensionController = extensions.controller
@@ -40,6 +40,9 @@ final class WebEnvironment {
             in: LoginFormScript.world
         ))
         content.add(WeakScriptHandler(controller), contentWorld: LoginFormScript.world, name: LoginFormScript.handlerName)
+        // Developer tools: every frame, page world, buffering until the panel opens.
+        if let script = DevToolsSession.script { content.addUserScript(script) }
+        content.add(WeakScriptHandler(devTools), contentWorld: .page, name: DevToolsSession.handlerName)
         configuration.userContentController = content
         return configuration
     }

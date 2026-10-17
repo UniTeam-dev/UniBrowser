@@ -104,7 +104,8 @@ struct ContentArea: View {
     }
 }
 
-/// One tab's page: the password bar, the web view and its loading bar.
+/// One tab's page: the password bar, the web view and its loading bar, and the tab's
+/// developer tools when they are open.
 struct TabPane: View {
     @Environment(BrowserStore.self) private var store
     let tab: BrowserTab
@@ -112,13 +113,15 @@ struct TabPane: View {
     var body: some View {
         VStack(spacing: 0) {
             PasswordBar(tab: tab)
-            ZStack(alignment: .top) {
-                WebViewContainer(tab: tab, environment: store.environment)
-                if tab.isLoading {
-                    ProgressView(value: tab.estimatedProgress)
-                        .progressViewStyle(.linear)
-                        .tint(Palette.accent)
-                        .frame(height: 2)
+            DevToolsDock(tab: tab) {
+                ZStack(alignment: .top) {
+                    WebViewContainer(tab: tab, environment: store.environment)
+                    if tab.isLoading {
+                        ProgressView(value: tab.estimatedProgress)
+                            .progressViewStyle(.linear)
+                            .tint(Palette.accent)
+                            .frame(height: 2)
+                    }
                 }
             }
         }
