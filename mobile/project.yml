@@ -37,9 +37,13 @@ targets:
       - package: IrohLib
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.unibrowser.UniBrowserMobile
+        PRODUCT_BUNDLE_IDENTIFIER: com.ilya.browser
         INFOPLIST_FILE: UniBrowserMobile/Resources/Info.plist
-        CODE_SIGN_STYLE: Automatic
+        # Ad-hoc подпись профилем "Ilya" (команда 7SJ59D8JGU). Для симулятора build.sh ставит CODE_SIGNING_ALLOWED=NO.
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: 7SJ59D8JGU
+        PROVISIONING_PROFILE_SPECIFIER: Ilya
+        CODE_SIGN_IDENTITY: Apple Distribution
         TARGETED_DEVICE_FAMILY: "1"
         # Swift 6 strict concurrency is on; UI types are @MainActor.
         SWIFT_STRICT_CONCURRENCY: complete
