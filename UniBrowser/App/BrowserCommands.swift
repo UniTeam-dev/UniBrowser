@@ -34,6 +34,10 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             Button("Пароли UniBrowser…") { model.isPasswordsVisible = true }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+            #if DIRECT
+            Button("Подключить «Пароли»…") { Task { await model.passwords.apple.beginPairing() } }
+                .disabled(model.passwords.apple.state == .connected)
+            #endif
             Button("iPhone…") { openWindow(id: "iphone") }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
             Divider()

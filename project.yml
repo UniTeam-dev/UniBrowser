@@ -10,28 +10,50 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 packages:
+  BigInt:
+    url: https://github.com/attaswift/BigInt
+    from: 5.3.0
   IrohLib:
     # QUIC tunnel with NAT traversal and relays for the iPhone link.
     url: https://github.com/n0-computer/iroh-ffi
     exactVersion: 1.1.0
-targets:
-  UniBrowser:
+targetTemplates:
+  Mac:
     type: application
     platform: macOS
     sources:
       - path: UniBrowser
       # The iPhone link's protocol and merge, compiled into both apps.
       - path: Shared
-    dependencies:
-      - package: IrohLib
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.unibrowser.UniBrowser
         INFOPLIST_FILE: UniBrowser/Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: UniBrowser/Resources/UniBrowser.entitlements
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 7SJ59D8JGU
         # Swift 6 strict concurrency is on; UI types are @MainActor.
         SWIFT_STRICT_CONCURRENCY: complete
         ENABLE_HARDENED_RUNTIME: YES
         # IrohLib ships an arm64-only macOS library.
         ARCHS: arm64
+targets:
+  # Mac App Store build: App Sandbox, public API only.
+  UniBrowser:
+    templates: [Mac]
+    dependencies:
+      - package: IrohLib
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.unibrowser.UniBrowser
+        CODE_SIGN_ENTITLEMENTS: UniBrowser/Resources/UniBrowser.entitlements
+  # Website build (Developer ID + notarization): no sandbox; code that App Review
+  # would reject goes under `#if DIRECT`.
+  UniBrowserDirect:
+    templates: [Mac]
+    dependencies:
+      - package: BigInt
+      - package: IrohLib
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.unibrowser.UniBrowser.direct
+        CODE_SIGN_ENTITLEMENTS: UniBrowser/Resources/UniBrowserDirect.entitlements
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) DIRECT

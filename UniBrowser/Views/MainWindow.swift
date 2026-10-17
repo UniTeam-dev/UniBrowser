@@ -26,6 +26,14 @@ struct MainWindow: View {
                 CommandPalette(mode: mode)
             }
         }
+        #if DIRECT
+        .sheet(isPresented: Binding(
+            get: { model.passwords.apple.state == .awaitingPIN },
+            set: { if !$0 { model.passwords.apple.cancelPairing() } }
+        )) {
+            PairingSheet()
+        }
+        #endif
         .sheet(isPresented: Bindable(model).isArchiveVisible) {
             ArchiveView()
         }
@@ -33,7 +41,7 @@ struct MainWindow: View {
             ExtensionsView(manager: store.environment.extensions)
         }
         .sheet(isPresented: Bindable(model).isPasswordsVisible) {
-            PasswordsManagerView(store: model.passwords)
+            PasswordsManagerView(store: model.passwords.fallback)
         }
         .overlay {
             if model.isTabMapVisible {

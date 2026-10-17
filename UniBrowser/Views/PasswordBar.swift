@@ -27,6 +27,15 @@ struct PasswordBar: View {
                 .buttonStyle(.borderedProminent)
                 .tint(Palette.accent)
             }
+        } else if tab.hasLoginForm && canPairApplePasswords {
+            bar {
+                Image(systemName: "key.fill").foregroundStyle(Palette.accent)
+                Text("Подключите «Пароли», чтобы подставлять и сохранять пароли из iCloud")
+                Spacer()
+                Button("Подключить") { pairApplePasswords() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Palette.accent)
+            }
         } else if !tab.loginOffers.isEmpty {
             bar {
                 Image(systemName: "key.fill").foregroundStyle(Palette.accent)
@@ -50,6 +59,21 @@ struct PasswordBar: View {
                 .padding(.horizontal, 12)
                 .onTapGesture { self.error = nil }
         }
+    }
+
+    // Apple Passwords pairing exists only in the Direct build.
+    private var canPairApplePasswords: Bool {
+        #if DIRECT
+        model.passwords.apple.state == .readyToPair
+        #else
+        false
+        #endif
+    }
+
+    private func pairApplePasswords() {
+        #if DIRECT
+        Task { await model.passwords.apple.beginPairing() }
+        #endif
     }
 
     private func bar<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
