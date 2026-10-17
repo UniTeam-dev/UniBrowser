@@ -10,6 +10,8 @@ struct SessionSnapshot: Codable {
         var title: String
         /// The name the user gave the tab; nil shows the page title.
         var customTitle: String?
+        /// The address the tab had when it was pinned; "back home" returns to it.
+        var pinnedURL: URL?
         var lastActivated: Date
     }
 

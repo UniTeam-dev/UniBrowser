@@ -97,6 +97,12 @@ struct TabRow: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
                 }
+                if tab.isAwayFromPin {
+                    Button { store.returnToPin(tab.id) } label: { Text("📌").font(.system(size: 11)) }
+                        .buttonStyle(.plain)
+                        .help("Вернуть на закреплённую страницу")
+                        .accessibilityLabel("Вернуть на закреплённую страницу")
+                }
                 if tab.isPlayingAudio {
                     Image(systemName: "speaker.wave.2")
                         .foregroundStyle(Palette.accent)
@@ -129,6 +135,9 @@ struct TabRow: View {
         .draggable(tab.id.uuidString)
         .contextMenu {
             Button(store.activeSpace.pinnedTabIDs.contains(tab.id) ? "Открепить" : "Закрепить") { store.togglePin(tab.id) }
+            if tab.isAwayFromPin {
+                Button("Вернуть на закреплённую страницу") { store.returnToPin(tab.id) }
+            }
             Button("Переименовать") { draftName = tab.customTitle ?? ""; isRenaming = true }
             if tab.customTitle != nil {
                 Button("Вернуть название страницы") { store.renameTab(tab.id, to: "") }

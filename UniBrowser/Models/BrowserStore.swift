@@ -34,8 +34,10 @@ final class BrowserStore {
             activeSpaceID = snapshot.activeSpaceID
             archive = snapshot.archive ?? []
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
-                ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, lastActivated: $0.lastActivated))
+                ($0.id, BrowserTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated))
             })
+            // Tabs pinned before the pin address was kept start from where they are now.
+            for id in spaces.flatMap(\.pinnedTabIDs) where tabs[id]?.pinnedURL == nil { tabs[id]?.pinnedURL = tabs[id]?.url }
         } else {
             let work = Space(name: "Работа", colorHex: Palette.spaceColors[0])
             spaces = [work, Space(name: "Личное", colorHex: Palette.spaceColors[1])]
@@ -144,14 +146,22 @@ final class BrowserStore {
     func togglePin(_ tabID: UUID) {
         mutateActiveSpace { space in
             if space.pinnedTabIDs.contains(tabID) {
+                tabs[tabID]?.pinnedURL = nil
                 space.pinnedTabIDs.removeAll { $0 == tabID }
                 space.looseTabIDs.append(tabID)
             } else {
                 space.looseTabIDs.removeAll { $0 == tabID }
                 for g in space.groups.indices { space.groups[g].tabIDs.removeAll { $0 == tabID } }
                 space.pinnedTabIDs.append(tabID)
+                tabs[tabID]?.pinnedURL = tabs[tabID]?.url
             }
         }
+    }
+
+    func returnToPin(_ tabID: UUID) {
+        guard let tab = tabs[tabID], let url = tab.pinnedURL else { return }
+        tab.load(url)
+        scheduleSave()
     }
 
     /// Opens what the user typed: a URL if it looks like one, otherwise a search.
@@ -227,6 +237,7 @@ final class BrowserStore {
     }
 
     func move(_ tabID: UUID, toGroup groupID: UUID?) {
+        tabs[tabID]?.pinnedURL = nil
         mutateActiveSpace { space in
             space.pinnedTabIDs.removeAll { $0 == tabID }
             space.looseTabIDs.removeAll { $0 == tabID }
@@ -382,7 +393,7 @@ final class BrowserStore {
         SessionSnapshot(
             spaces: spaces,
             activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, lastActivated: $0.lastActivated) },
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated) },
             archive: archive,
             modifiedAt: modifiedAt,
             deviceID: Self.deviceID
@@ -417,10 +428,11 @@ final class BrowserStore {
                     tab.title = record.title
                 }
                 tab.customTitle = record.customTitle
+                tab.pinnedURL = record.pinnedURL
                 tab.lastActivated = max(tab.lastActivated, record.lastActivated)
                 updated[record.id] = tab
             } else {
-                let tab = BrowserTab(id: record.id, url: record.url, title: record.title, customTitle: record.customTitle, lastActivated: record.lastActivated)
+                let tab = BrowserTab(id: record.id, url: record.url, title: record.title, customTitle: record.customTitle, pinnedURL: record.pinnedURL, lastActivated: record.lastActivated)
                 updated[record.id] = tab
                 environment.extensions.tabOpened(tab)
             }

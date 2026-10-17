@@ -89,11 +89,19 @@ struct SidebarView: View {
         Button { model.openPalette(.address) } label: {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondaryText)
-                // The whole address minus the scheme; the middle gives way so the domain and the tail stay visible.
-                Text(store.selectedTab?.url.map { $0.absoluteString.replacingOccurrences(of: "^https?://(www\\.)?", with: "", options: .regularExpression) } ?? "Поиск или адрес")
-                    .lineLimit(3)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // Domain in full, the path dimmed after it; a click opens the whole URL to read or copy.
+                Group {
+                    if let url = store.selectedTab?.url, let host = url.host() {
+                        let rest = url.absoluteString.components(separatedBy: host).dropFirst().joined(separator: host)
+                        Text(host.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression))
+                            + Text(rest == "/" ? "" : rest).foregroundColor(Palette.secondaryText)
+                    } else {
+                        Text("Поиск или адрес")
+                    }
+                }
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Text("⌘K")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.secondaryText)
@@ -101,8 +109,7 @@ struct SidebarView: View {
                     .background(Palette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 4))
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(minHeight: 34)
+            .frame(height: 34)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .contentShape(Rectangle())
         }

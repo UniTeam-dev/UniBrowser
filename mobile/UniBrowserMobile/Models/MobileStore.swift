@@ -35,8 +35,10 @@ final class MobileStore {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
-                ($0.id, MobileTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, lastActivated: $0.lastActivated))
+                ($0.id, MobileTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated))
             })
+            // Tabs pinned before the pin address was kept start from where they are now.
+            for id in spaces.flatMap(\.pinnedTabIDs) where tabs[id]?.pinnedURL == nil { tabs[id]?.pinnedURL = tabs[id]?.url }
             archive = snapshot.archive ?? []
             lastModified = snapshot.modifiedAt ?? .distantPast
         } else {
@@ -136,14 +138,22 @@ final class MobileStore {
     func togglePin(_ tabID: UUID) {
         mutateActiveSpace { space in
             if space.pinnedTabIDs.contains(tabID) {
+                tabs[tabID]?.pinnedURL = nil
                 space.pinnedTabIDs.removeAll { $0 == tabID }
                 space.looseTabIDs.append(tabID)
             } else {
                 space.looseTabIDs.removeAll { $0 == tabID }
                 for g in space.groups.indices { space.groups[g].tabIDs.removeAll { $0 == tabID } }
                 space.pinnedTabIDs.append(tabID)
+                tabs[tabID]?.pinnedURL = tabs[tabID]?.url
             }
         }
+    }
+
+    func returnToPin(_ tabID: UUID) {
+        guard let tab = tabs[tabID], let url = tab.pinnedURL else { return }
+        tab.load(url)
+        scheduleSave()
     }
 
     /// Opens what the user typed: a URL if it looks like one, otherwise a search.
@@ -169,6 +179,7 @@ final class MobileStore {
     }
 
     func move(_ tabID: UUID, toGroup groupID: UUID?) {
+        tabs[tabID]?.pinnedURL = nil
         mutateActiveSpace { space in
             space.pinnedTabIDs.removeAll { $0 == tabID }
             space.looseTabIDs.removeAll { $0 == tabID }
@@ -250,7 +261,7 @@ final class MobileStore {
         SessionSnapshot(
             spaces: spaces,
             activeSpaceID: activeSpaceID,
-            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, lastActivated: $0.lastActivated) },
+            tabs: tabs.values.map { .init(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated) },
             archive: archive,
             modifiedAt: modifiedAt,
             deviceID: Self.deviceID
@@ -280,10 +291,11 @@ final class MobileStore {
                     tab.title = record.title
                 }
                 tab.customTitle = record.customTitle
+                tab.pinnedURL = record.pinnedURL
                 tab.lastActivated = max(tab.lastActivated, record.lastActivated)
                 updated[record.id] = tab
             } else {
-                updated[record.id] = MobileTab(id: record.id, url: record.url, title: record.title, customTitle: record.customTitle, lastActivated: record.lastActivated)
+                updated[record.id] = MobileTab(id: record.id, url: record.url, title: record.title, customTitle: record.customTitle, pinnedURL: record.pinnedURL, lastActivated: record.lastActivated)
             }
         }
         for (id, tab) in tabs where updated[id] == nil { tab.sleep() }

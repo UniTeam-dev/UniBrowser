@@ -132,19 +132,27 @@ struct TabsSheet: View {
     @ViewBuilder
     private func row(_ tabID: UUID) -> some View {
         if let tab = store.tab(tabID) {
-            Button {
-                store.select(tabID)
-                dismiss()
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(tab.displayTitle).lineLimit(1)
-                    if let host = tab.url?.host() {
-                        Text(host).font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button {
+                    store.select(tabID)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tab.displayTitle).lineLimit(1)
+                        if let host = tab.url?.host() {
+                            Text(host).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                if tab.isAwayFromPin {
+                    Button("📌") { store.returnToPin(tabID) }
+                        .accessibilityLabel("Вернуть на закреплённую страницу")
+                }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
+            .foregroundStyle(.primary)
             .listRowBackground(store.activeSpace.selectedTabID == tabID ? store.activeSpace.color.opacity(0.15) : nil)
             .swipeActions {
                 Button("Закрыть", systemImage: "xmark", role: .destructive) { store.closeTab(tabID) }
@@ -154,6 +162,9 @@ struct TabsSheet: View {
                     store.activeSpace.pinnedTabIDs.contains(tabID) ? "Открепить" : "Закрепить",
                     systemImage: "pin"
                 ) { store.togglePin(tabID) }
+                if tab.isAwayFromPin {
+                    Button("Вернуть на закреплённую страницу", systemImage: "pin") { store.returnToPin(tabID) }
+                }
                 Button("Переименовать", systemImage: "pencil") {
                     tabName = tab.customTitle ?? ""
                     renamingTabID = tabID
