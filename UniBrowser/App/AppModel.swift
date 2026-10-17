@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import WebKit
 
 /// Owns the long-lived objects and the window's transient UI state
 /// (command palette, Ctrl+Tab switcher, sidebar visibility).
@@ -51,6 +52,16 @@ final class AppModel {
         closePeek()
     }
 
+    func peekToSplit() {
+        guard let peek else { return }
+        if let id = peek.sourceTabID, store.tab(id) != nil {
+            store.openSplit(with: id)
+        } else if let url = peek.url {
+            store.openSplit(with: store.newTab(url: url, select: false).id)
+        }
+        closePeek()
+    }
+
     func openPalette(_ mode: PaletteMode) {
         paletteMode = mode
     }
@@ -61,14 +72,32 @@ final class AppModel {
     /// Shift goes back, Esc cancels, and releasing Ctrl switches. A local event
     /// monitor sees the keys before the web view can swallow them.
     private func installTabSwitcherMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
-            self?.handleSwitcherEvent(event) ?? event
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown]) { [weak self] event in
+            self?.handle(event) ?? event
         }
     }
 
-    private func handleSwitcherEvent(_ event: NSEvent) -> NSEvent? {
+    /// A click inside a split pane's web page makes that pane active. The web view
+    /// takes the click itself, so SwiftUI never sees it.
+    private func activateSplitPane(for event: NSEvent) {
+        guard let split = store.activeSpace.split,
+              var view = event.window?.contentView?.superview?.hitTest(event.locationInWindow)
+        else { return }
+        while !(view is WKWebView) {
+            guard let parent = view.superview else { return }
+            view = parent
+        }
+        for id in [split.left, split.right] where store.tab(id)?.webView === view && store.activeSpace.selectedTabID != id {
+            store.select(id)
+        }
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
         let tabs = store.tabsByRecency
         switch event.type {
+        case .leftMouseDown:
+            activateSplitPane(for: event)
+            return event
         case .keyDown where event.keyCode == 48 && event.modifierFlags.contains(.control): // Tab
             guard tabs.count > 1 else { return nil }
             let step = event.modifierFlags.contains(.shift) ? -1 : 1

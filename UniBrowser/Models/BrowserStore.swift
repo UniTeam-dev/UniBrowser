@@ -99,6 +99,7 @@ final class BrowserStore {
                 spaces[index].groups[g].tabIDs.removeAll { $0 == tabID }
             }
             if spaces[index].selectedTabID == tabID { spaces[index].selectedTabID = nil }
+            if spaces[index].split?.contains(tabID) == true { spaces[index].split = nil }
         }
         if wasSelected, let next = tabsByRecency.first {
             select(next.id)
@@ -131,6 +132,35 @@ final class BrowserStore {
         } else {
             newTab(url: url)
         }
+    }
+
+    // MARK: - Split View
+
+    /// Shows `tabID` on the right of the selected tab (or of the most recent other tab).
+    func openSplit(with tabID: UUID) {
+        let current = activeSpace.selectedTabID.flatMap { $0 == tabID ? nil : $0 }
+        guard let partner = current ?? tabsByRecency.first(where: { $0.id != tabID })?.id else { return }
+        mutateActiveSpace { $0.split = SplitPair(left: partner, right: tabID) }
+        select(tabID)
+    }
+
+    func swapSplit() {
+        mutateActiveSpace { space in
+            guard let split = space.split else { return }
+            space.split = SplitPair(left: split.right, right: split.left, fraction: 1 - split.fraction)
+        }
+    }
+
+    /// Leaves the left pane's tab selected.
+    func endSplit() {
+        guard let split = activeSpace.split else { return }
+        mutateActiveSpace { $0.split = nil }
+        select(split.left)
+    }
+
+    /// Called on every drag step, so it does not save; the drag's end calls `scheduleSave()`.
+    func setSplitFraction(_ fraction: Double) {
+        spaces[activeSpaceIndex].split?.fraction = min(max(fraction, 0.2), 0.8)
     }
 
     // MARK: - Archive

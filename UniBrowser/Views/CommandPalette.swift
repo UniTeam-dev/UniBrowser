@@ -50,6 +50,9 @@ struct CommandPalette: View {
         if let selected = store.activeSpace.selectedTabID {
             commands.append(.command("Закрепить или открепить вкладку", shortcut: "⌘⇧D") { store.togglePin(selected) })
             commands.append(.command("Убрать вкладку в архив", shortcut: nil) { store.archiveTab(selected) })
+            if store.activeSpace.split != nil {
+                commands.append(.command("Выйти из Split View", shortcut: nil) { store.endSplit() })
+            }
             for group in store.activeSpace.groups {
                 commands.append(.command("Переместить вкладку в группу «\(group.name)»", shortcut: nil) {
                     store.move(selected, toGroup: group.id)
@@ -92,9 +95,15 @@ struct CommandPalette: View {
                         .onKeyPress(.upArrow) { move(-1); return .handled }
                         .onKeyPress(.escape) { close(); return .handled }
                         .onKeyPress(keys: [.return]) { press in
-                            guard press.modifiers.contains(.option) else { return .ignored }
-                            peek(at: selection)
-                            return .handled
+                            if press.modifiers.contains(.option) {
+                                peek(at: selection)
+                                return .handled
+                            }
+                            if press.modifiers.contains(.command) {
+                                split(at: selection)
+                                return .handled
+                            }
+                            return .ignored
                         }
                     Text("Esc")
                         .font(.system(size: 12))
@@ -129,6 +138,7 @@ struct CommandPalette: View {
                     Text("↑↓ выбрать")
                     Text("↵ открыть")
                     Text("⌥↵ поверх")
+                    Text("⌘↵ Split View")
                     Spacer()
                     Text("Ctrl+Tab: недавние вкладки")
                 }
@@ -229,6 +239,24 @@ struct CommandPalette: View {
             if let url = tab.url { model.openPeek(url, sourceTabID: tab.id) }
         case .archived(let item):
             if let url = item.url { model.openPeek(url) }
+        case .group, .command:
+            return
+        }
+        close()
+    }
+
+    /// ⌘↵: show the selected tab or typed address next to the current tab.
+    private func split(at index: Int) {
+        let items = flatItems
+        guard items.indices.contains(index) else { return }
+        switch items[index] {
+        case .open(let text):
+            if let url = BrowserStore.url(fromInput: text) { store.openSplit(with: store.newTab(url: url, select: false).id) }
+        case .tab(let tab):
+            store.openSplit(with: tab.id)
+        case .archived(let item):
+            store.openSplit(with: store.newTab(url: item.url, select: false).id)
+            store.deleteArchived(item.id)
         case .group, .command:
             return
         }

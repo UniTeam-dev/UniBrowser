@@ -120,6 +120,8 @@ struct TabRow: View {
                 Divider()
                 Button("Без группы") { store.move(tab.id, toGroup: nil) }
             }
+            Button("Открыть в Split View") { store.openSplit(with: tab.id) }
+                .disabled(store.activeSpace.allTabIDs.count < 2)
             Button("Новая группа с этой вкладкой") { store.newGroup(named: "Новая группа", with: [tab.id]) }
             Divider()
             Button("Усыпить") { tab.sleep() }.disabled(tab.isAsleep || isSelected)

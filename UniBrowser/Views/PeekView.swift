@@ -24,6 +24,7 @@ struct PeekView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
+                    Button("В Split View") { model.peekToSplit() }
                     Button("Сделать вкладкой") { model.peekToTab() }
                         .buttonStyle(.borderedProminent)
                         .tint(Palette.accent)
