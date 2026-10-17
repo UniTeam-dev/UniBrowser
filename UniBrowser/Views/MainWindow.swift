@@ -31,6 +31,11 @@ struct MainWindow: View {
             ArchiveView()
         }
         .overlay {
+            if let page = model.peek {
+                PeekView(page: page)
+            }
+        }
+        .overlay {
             if let index = model.switcherIndex {
                 TabSwitcherView(highlighted: index)
             }

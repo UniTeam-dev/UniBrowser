@@ -14,6 +14,8 @@ final class AppModel {
     var paletteMode: PaletteMode?
     var isSidebarVisible = true
     var isArchiveVisible = false
+    /// The page shown over the window by ⌥+click or ⌥↵; nil when Peek is closed.
+    var peek: PeekPage?
     /// Index into `store.tabsByRecency` while Ctrl is held; nil when the switcher is closed.
     var switcherIndex: Int?
 
@@ -24,6 +26,29 @@ final class AppModel {
         self.passwords = passwords
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords))
         installTabSwitcherMonitor()
+        store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
+    }
+
+    // MARK: - Peek
+
+    /// `sourceTabID` is set when peeking at an existing tab, so "Сделать вкладкой" selects it instead of duplicating.
+    func openPeek(_ url: URL, sourceTabID: UUID? = nil) {
+        peek = PeekPage(url: url, sourceTabID: sourceTabID, configuration: store.environment.makeBaseConfiguration())
+    }
+
+    func closePeek() {
+        peek?.webView.stopLoading()
+        peek = nil
+    }
+
+    func peekToTab() {
+        guard let peek else { return }
+        if let id = peek.sourceTabID, store.tab(id) != nil {
+            store.select(id)
+        } else if let url = peek.url {
+            store.newTab(url: url)
+        }
+        closePeek()
     }
 
     func openPalette(_ mode: PaletteMode) {
@@ -52,6 +77,9 @@ final class AppModel {
             return nil
         case .keyDown where event.keyCode == 53 && switcherIndex != nil: // Esc
             switcherIndex = nil
+            return nil
+        case .keyDown where event.keyCode == 53 && peek != nil:
+            closePeek()
             return nil
         case .flagsChanged where switcherIndex != nil && !event.modifierFlags.contains(.control):
             if let index = switcherIndex, tabs.indices.contains(index) {

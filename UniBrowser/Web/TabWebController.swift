@@ -19,6 +19,12 @@ extension TabWebController: WKNavigationDelegate {
         decidePolicyFor action: WKNavigationAction,
         preferences: WKWebpagePreferences
     ) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+        // Option+click peeks at the link without making a tab.
+        if action.modifierFlags.contains(.option), action.navigationType == .linkActivated,
+           let url = action.request.url, let onPeek = environment?.onPeek {
+            onPeek(url)
+            return (.cancel, preferences)
+        }
         // Cmd+click opens the link in a new background tab, like other browsers.
         if action.modifierFlags.contains(.command), action.navigationType == .linkActivated,
            let url = action.request.url {

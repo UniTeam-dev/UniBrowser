@@ -8,16 +8,24 @@ final class WebEnvironment {
     weak var store: BrowserStore?
     let dataStore = WKWebsiteDataStore.default()
     let passwords: CredentialProvider
+    /// ⌥+click on a link; AppModel shows the URL in Peek.
+    var onPeek: ((URL) -> Void)?
 
     init(passwords: CredentialProvider) {
         self.passwords = passwords
     }
 
-    func makeConfiguration(for controller: TabWebController) -> WKWebViewConfiguration {
+    /// Shared cookies and user agent, no tab scripts: what Peek's temporary page uses.
+    func makeBaseConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
         configuration.preferences.isElementFullscreenEnabled = true
         configuration.applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
+        return configuration
+    }
+
+    func makeConfiguration(for controller: TabWebController) -> WKWebViewConfiguration {
+        let configuration = makeBaseConfiguration()
 
         let content = WKUserContentController()
         content.addUserScript(WKUserScript(

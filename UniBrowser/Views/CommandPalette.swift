@@ -91,6 +91,11 @@ struct CommandPalette: View {
                         .onKeyPress(.downArrow) { move(1); return .handled }
                         .onKeyPress(.upArrow) { move(-1); return .handled }
                         .onKeyPress(.escape) { close(); return .handled }
+                        .onKeyPress(keys: [.return]) { press in
+                            guard press.modifiers.contains(.option) else { return .ignored }
+                            peek(at: selection)
+                            return .handled
+                        }
                     Text("Esc")
                         .font(.system(size: 12))
                         .foregroundStyle(Palette.secondaryText)
@@ -123,6 +128,7 @@ struct CommandPalette: View {
                 HStack(spacing: 18) {
                     Text("↑↓ выбрать")
                     Text("↵ открыть")
+                    Text("⌥↵ поверх")
                     Spacer()
                     Text("Ctrl+Tab: недавние вкладки")
                 }
@@ -208,6 +214,23 @@ struct CommandPalette: View {
             store.restore(item.id)
         case .command(_, _, let action):
             action()
+        }
+        close()
+    }
+
+    /// ⌥↵: show the selected tab, archived page or typed address in Peek.
+    private func peek(at index: Int) {
+        let items = flatItems
+        guard items.indices.contains(index) else { return }
+        switch items[index] {
+        case .open(let text):
+            if let url = BrowserStore.url(fromInput: text) { model.openPeek(url) }
+        case .tab(let tab):
+            if let url = tab.url { model.openPeek(url, sourceTabID: tab.id) }
+        case .archived(let item):
+            if let url = item.url { model.openPeek(url) }
+        case .group, .command:
+            return
         }
         close()
     }
