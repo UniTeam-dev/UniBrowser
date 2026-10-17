@@ -21,6 +21,10 @@
 <body>
   <h1>DevTools test</h1>
   <button id="log" onclick="console.log('main: click', new Date().toISOString())">Лог из страницы</button>
+  <!-- Консоль / Источники: every console method, errors, a bundle with a source map. -->
+  <script src="console.js"></script>
+  <button id="bundle-fail">Ошибка из бандла</button>
+  <script src="bundle/app.js"></script>
   <p>Cross-origin iframe (page port + 1):</p>
   <iframe id="child" width="600" height="160"></iframe>
   <h2>Приложение и Рендеринг</h2>
