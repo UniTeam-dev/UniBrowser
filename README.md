@@ -49,13 +49,7 @@ Then pick your team under Signing & Capabilities and run (⌘R).
   `swiftc -parse-as-library UniBrowser/Extensions/CRX.swift scripts/crx_check.swift -o /tmp/crx_check && /tmp/crx_check`
   checks the CRX unpacking.
 
-- iCloud mirror (SyncService): the whole session (spaces, tabs, groups, archive)
-  is mirrored through the user's private CloudKit database so another device
-  running UniBrowser, signed into the same iCloud, catches up. Pushes on change,
-  pulls on launch and when the window becomes active; last writer wins by time.
-  The wire format is `SessionSnapshot` — the iOS app must encode/decode the same
-  shape. Needs a signed build with the iCloud capability (see
-  UniBrowser.entitlements); the ad-hoc dev build runs local-only.
+- iPhone link (UniBrowser/ViaMac + Shared/ViaMac): menu Вкладки → iPhone… (⇧⌘I) pairs an iPhone by QR. Over one iroh tunnel (direct or via relay, works from any network) the phone gets a SOCKS proxy through this Mac and a live two-way mirror of spaces, groups, tabs and UniBrowser passwords; after time apart the Mac merges both sides (later change wins, new tabs from both kept). Wire format: `SessionSnapshot`. `swiftc -parse-as-library UniBrowser/Models/Space.swift UniBrowser/Models/SessionSnapshot.swift Shared/ViaMac/SessionMerge.swift scripts/merge_check.swift -o /tmp/merge_check && /tmp/merge_check` checks the merge.
 
 ## Next
 
