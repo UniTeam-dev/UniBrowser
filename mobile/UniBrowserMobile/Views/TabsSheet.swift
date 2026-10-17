@@ -42,7 +42,7 @@ struct TabsSheet: View {
                 ForEach(space.groups) { group in
                     Section {
                         if group.isExpanded {
-                            ForEach(group.tabIDs, id: \.self) { row($0) }
+                            ForEach(store.orderedTabIDs(group), id: \.self) { row($0) }
                         }
                     } header: {
                         Button {
@@ -149,6 +149,9 @@ struct TabsSheet: View {
                 if tab.isAwayFromPin {
                     Button("📌") { store.returnToPin(tabID) }
                         .accessibilityLabel("Вернуть на закреплённую страницу")
+                } else if tab.pinnedURL != nil && store.isInGroup(tabID) {
+                    Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
+                        .accessibilityLabel("Закреплена в папке")
                 }
             }
             .buttonStyle(.borderless)
@@ -162,6 +165,11 @@ struct TabsSheet: View {
                     store.activeSpace.pinnedTabIDs.contains(tabID) ? "Открепить" : "Закрепить",
                     systemImage: "pin"
                 ) { store.togglePin(tabID) }
+                if store.isInGroup(tabID) {
+                    Button(tab.pinnedURL == nil ? "Закрепить в папке" : "Открепить в папке", systemImage: "pin.circle") {
+                        store.togglePinInGroup(tabID)
+                    }
+                }
                 if tab.isAwayFromPin {
                     Button("Вернуть на закреплённую страницу", systemImage: "pin") { store.returnToPin(tabID) }
                 }

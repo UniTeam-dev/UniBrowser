@@ -158,6 +158,23 @@ final class BrowserStore {
         }
     }
 
+    /// Pinned inside its folder: the tab stays there, on top, and remembers its page like any pinned tab.
+    func togglePinInGroup(_ tabID: UUID) {
+        guard let tab = tabs[tabID] else { return }
+        tab.pinnedURL = tab.pinnedURL == nil ? tab.url : nil
+        scheduleSave()
+    }
+
+    func isInGroup(_ tabID: UUID) -> Bool {
+        activeSpace.groups.contains { $0.tabIDs.contains(tabID) }
+    }
+
+    /// The folder's tabs with the pinned ones first, each part in its own order.
+    func orderedTabIDs(_ group: TabGroup) -> [UUID] {
+        let pinned = group.tabIDs.filter { tabs[$0]?.pinnedURL != nil }
+        return pinned + group.tabIDs.filter { tabs[$0]?.pinnedURL == nil }
+    }
+
     func returnToPin(_ tabID: UUID) {
         guard let tab = tabs[tabID], let url = tab.pinnedURL else { return }
         tab.load(url)

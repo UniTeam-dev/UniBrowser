@@ -55,7 +55,7 @@ struct GroupSection: View {
 
             if group.isExpanded {
                 VStack(spacing: 2) {
-                    ForEach(group.tabIDs, id: \.self) { id in
+                    ForEach(store.orderedTabIDs(group), id: \.self) { id in
                         if let tab = store.tab(id) { TabRow(tab: tab) }
                     }
                 }
@@ -116,6 +116,11 @@ struct TabRow: View {
                         .buttonStyle(.plain)
                         .help("Вернуть на закреплённую страницу")
                         .accessibilityLabel("Вернуть на закреплённую страницу")
+                } else if tab.pinnedURL != nil && store.isInGroup(tab.id) {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Palette.secondaryText)
+                        .accessibilityLabel("Закреплена в папке")
                 }
             }
             .padding(.horizontal, 8)
@@ -136,6 +141,9 @@ struct TabRow: View {
         .draggable(tab.id.uuidString)
         .contextMenu {
             Button(store.activeSpace.pinnedTabIDs.contains(tab.id) ? "Открепить" : "Закрепить") { store.togglePin(tab.id) }
+            if store.isInGroup(tab.id) {
+                Button(tab.pinnedURL == nil ? "Закрепить в папке" : "Открепить в папке") { store.togglePinInGroup(tab.id) }
+            }
             if tab.isAwayFromPin {
                 Button("Вернуть на закреплённую страницу") { store.returnToPin(tab.id) }
             }
