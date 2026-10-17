@@ -30,6 +30,9 @@ final class BrowserTab: Identifiable {
     var thumbnail: NSImage?
 
     @ObservationIgnored private(set) var webView: WKWebView?
+    /// The web view's own superview. WebKit docks its inspector beside the web view in
+    /// this view, so the inspector stays with its tab when the window switches tabs.
+    @ObservationIgnored private(set) var hostView: NSView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var controller: TabWebController?
 
@@ -86,8 +89,14 @@ final class BrowserTab: Identifiable {
             // poll requestMediaPlaybackState() if the speaker icon is needed.
         ]
 
+        let hostView = NSView()
+        webView.frame = hostView.bounds
+        webView.autoresizingMask = [.width, .height]
+        hostView.addSubview(webView)
+
         self.controller = controller
         self.webView = webView
+        self.hostView = hostView
         isAsleep = false
         if let url { webView.load(URLRequest(url: url)) }
         return webView
@@ -97,7 +106,8 @@ final class BrowserTab: Identifiable {
     func sleep() {
         observations.removeAll()
         webView?.stopLoading()
-        webView?.removeFromSuperview()
+        hostView?.removeFromSuperview()
+        hostView = nil
         webView = nil
         controller = nil
         isAsleep = true
