@@ -20,14 +20,22 @@ Review rejects private API (guideline 2.5.1), so the panel is built from:
   `pageZoom`/`magnification`, `URLSession`, and the navigation delegate's
   `WKNavigationResponse`.
 
-What this rules out, and where it goes instead:
+No code from other browsers is used. One third-party library is bundled:
+Acorn (MIT), the JavaScript parser the debugger needs. It ships inside the app
+and runs on page code only; nothing executable is downloaded (guideline 2.5.2).
+
+What public API cannot give, and how the panel covers it:
 
 | Chrome feature | Here |
 | --- | --- |
-| Line breakpoints, stepping, scope variables, pause on exceptions | Not possible: WebKit exposes its debugger only through Web Inspector. `webView.isInspectable = true` (public, already on) lets Safari → Разработка → UniBrowser attach its full debugger to any tab. The panel has a menu item explaining this. |
-| JS CPU profile, heap snapshots, memory | Same: Safari Web Inspector. |
-| Throttling of images/CSS/scripts | Only fetch/XHR/WebSocket are throttled; Offline blocks everything. |
+| Debugger (breakpoints, stepping, scopes) | Built by instrumenting the page's JavaScript in a per-tab debug mode; see «Отладчик». |
+| JS CPU profile | Instrumented function profile in debug mode; see «Производительность». |
+| Heap snapshots, memory usage | Not possible: no public API enumerates the JS heap. Not offered. |
+| Throttling of images/CSS/scripts | Only fetch/XHR/WebSocket are throttled; Офлайн blocks everything. |
 | Touch emulation, device pixel ratio | Not emulated; size and user agent are. |
+
+`webView.isInspectable` stays on (public API, allowed) but nothing in the app
+refers to Safari.
 
 ## Opening and layout
 
@@ -40,7 +48,7 @@ Menu «Разработка»:
 | Выбрать элемент на странице | ⇧⌘C |
 | Режим устройства | ⇧⌘M |
 | Жёсткая перезагрузка | ⇧⌘R |
-| Отладка JavaScript в Safari… | — (explains the Safari route) |
+| Режим отладки JavaScript (toggle, reloads the page) | ⇧⌘D |
 
 F12 is fn+F12 on Macs where it is a media key, unless "Use F1, F2 as standard
 function keys" is on; ⌥⌘I always works.
@@ -153,6 +161,85 @@ context menu (top / each frame by URL) picks where input runs.
 - «Отключить кэш»: fetch/XHR get `cache: 'no-store'`, and reloads use
   `reloadFromOrigin()`.
 
+## Отладчик
+
+Built on source instrumentation, used only when debug mode is on for the tab
+(⇧⌘D or the button in Источники). Turning it on or off reloads the page.
+
+**Loading.** In debug mode a main-frame navigation is cancelled in
+`decidePolicyFor navigationAction` and redone natively: `URLSession` fetches the
+document (GET, or POST with the original body) with the tab's cookies copied
+from `httpCookieStore` and its user agent; `Set-Cookie` responses are written
+back. The HTML is rewritten and shown with
+`loadSimulatedRequest(_:response:responseData:)`, so the page keeps its real
+URL, origin, cookies and storage. Rewriting:
+
+- `<script src>` URLs become `ubdbg-https://host/path` (or `ubdbg-http://`),
+  so relative module imports resolve inside the scheme. A `WKURLSchemeHandler`
+  for both schemes fetches the original, instruments JavaScript, passes other
+  types through, and answers with `Access-Control-Allow-Origin: *`.
+- Inline scripts and inline `on*` handlers are instrumented in place.
+- The page's CSP (header and `<meta>`) is dropped in debug mode, since the
+  instrumentation needs `ubdbg-*` loads and direct `eval` for scopes.
+- Scripts added later (`script.src`, `setAttribute('src')`, inline
+  `textContent`, `import()`) are redirected or instrumented in the page: the
+  instrumenter is plain JS (`debugger-runtime.js` with Acorn) that runs both in
+  a native `JSContext` and in the page.
+- Stack traces, `import.meta.url` and `document.currentScript` show
+  `ubdbg-*` URLs; the panel maps them back everywhere it shows a location.
+
+**Instrumentation** (per script, cached by URL + content hash):
+
+- Before every statement: `__ubd.s(id)`; `id` indexes a table of
+  line/column ranges. The check is a single typed-array lookup unless a
+  breakpoint or step is active.
+- Every function body is wrapped to push/pop a shadow call-stack frame
+  (function name, script, current statement) and, in a catch-rethrow, report
+  exceptions. Each frame registers a scope getter `() => ({a, b, …})` built
+  from the statically known bindings of each enclosing scope, and an evaluator
+  `(e) => eval(e)` for expressions in that frame.
+- `debugger;` statements become pause points.
+- `await`/`yield` re-enter their frame on resume, so stepping works across them;
+  the stack shows async boundaries like Chrome's "async" separators.
+
+**Pausing.** `__ubd.pause(reason)` sends the pause state (stack, scopes for the
+top frame, reason) and then loops on a synchronous `XMLHttpRequest` to
+`ubdbg-ctl://wait`. The scheme handler holds each request for up to 10 s and
+answers with a command: resume, step over/into/out, evaluate in frame N
+(result is sent back and the loop continues), get scope of frame N, or keep
+waiting. The page's JavaScript is blocked while paused, as in Chrome; a
+«Приостановлено в отладчике ▶︎ ⤼» overlay is shown on the page.
+
+**Features:**
+
+- Line breakpoints (click the gutter), conditional breakpoints, logpoints,
+  enable/disable, disable all, a breakpoints list; saved per script URL in
+  `UserDefaults` and restored on reload.
+- Pause on exceptions: all, or uncaught only (no enclosing instrumented
+  `try` on the shadow stack at the throw).
+- Event listener breakpoints (by event type, via the listener wrapper), XHR/fetch
+  breakpoints (URL contains), DOM breakpoints (subtree modified, attribute
+  modified, node removed, via wrapped DOM mutation methods).
+- Controls: resume (F8), step over (F10), step into (F11), step out (⇧F11),
+  continue to here, deactivate breakpoints.
+- Panes: call stack (click to select a frame), scope (local, closure, module,
+  global; expandable objects, values editable), watch expressions, and the
+  console evaluates in the selected frame while paused.
+- Source maps: `//# sourceMappingURL` (or the `SourceMap` header), external or
+  inline data URLs. The panel decodes the VLQ mappings itself, shows original
+  sources (from `sourcesContent`, or fetched) in Источники under their
+  `webpack://`/`file://` paths, sets breakpoints in original files (mapped to
+  the nearest generated statement), steps and shows stack locations in original
+  positions, and shows original variable names where `names` gives them.
+- Pretty-printed debugging for minified files without a source map: the
+  instrumenter prints the AST formatted, and debugging runs on that text.
+
+**Limits** (stated in the panel's help popover): pages run several times slower
+in debug mode; Web Workers, service workers and code passed to
+`eval`/`new Function` are not debugged; iframes debug only scripts they add
+dynamically, not their initial HTML; unusual code can behave differently under
+instrumentation, which is why it is off by default.
+
 ## Производительность
 
 - Record / stop. While recording the script samples `requestAnimationFrame`
@@ -163,7 +250,10 @@ context menu (top / each frame by URL) picks where input runs.
 - Result: timeline with the FPS graph, long frames, marks/measures and the
   resource waterfall; zoom by drag; a summary of page load (navigation timing,
   FCP, LCP, DOMContentLoaded, load) when available.
-- No JS call-tree profile (see the constraint table).
+- In debug mode the recording also has a JS profile from the instrumentation's
+  function enter/exit timestamps: call tree, bottom-up, and a flame chart, with
+  times mapped to original sources. Instrumentation overhead is subtracted per
+  call as a measured constant, so numbers are approximate.
 
 ## Приложение
 
@@ -199,6 +289,9 @@ response bodies are captured only while attached.
 
 ## Code layout
 
+- `UniBrowser/Resources/debugger-runtime.js` — the instrumenter and pause
+  runtime, with Acorn (`UniBrowser/Resources/acorn.js`, vendored, MIT licence
+  kept).
 - `UniBrowser/Resources/devtools.js` — the page script (hooks, previews, DOM
   ids, overlay, picker, CSSOM, storage, perf recording, frame linking), loaded
   from the bundle.
@@ -207,7 +300,8 @@ response bodies are captured only while attached.
     routing, `call(frame:_:)` helpers, attach/detach; owns the panel models.
   - `DevToolsView.swift` — dock (bottom/right/window), header, tab switching.
   - `ConsolePanel.swift`, `ElementsPanel.swift`, `SourcesPanel.swift`,
-    `NetworkPanel.swift`, `PerformancePanel.swift`, `ApplicationPanel.swift`,
+    `NetworkPanel.swift`, `DebuggerPanel.swift`, `DebugLoader.swift` (proxy
+    load and scheme handler), `SourceMap.swift`, `PerformancePanel.swift`, `ApplicationPanel.swift`,
     `DeviceMode.swift` — each holds its model and its SwiftUI view.
 - Touched: `WebEnvironment` (script, handler), `TabWebController`
   (`decidePolicyFor navigationResponse`, reset on commit), `BrowserTab`
@@ -236,3 +330,14 @@ stylesheet, cookies, local/sessionStorage, IndexedDB, a service worker and
 picks inside the iframe, tab switching keeps each tab's panel, navigation
 clears unless preserve is on, a sleeping tab drops its panel, Split View panes
 are independent, Офлайн blocks loads, device mode resizes and changes UA.
+For the debugger the test page adds a small TypeScript bundle built with a
+source map: breakpoint in the `.ts` file, step over/into/out, scope values,
+watch, conditional breakpoint, logpoint, exception pause, pause inside an
+`async` function after `await`. `SourceMap.swift` gets an assert-based
+self-check for VLQ decoding against a known mapping.
+
+The first implementation step is a spike that proves the two risky mechanics
+before anything else is built: a synchronous XHR from an `https` page to a
+`ubdbg-ctl://` scheme handler that is held open (pause), and a module script
+graph loaded through `ubdbg-https://` under `loadSimulatedRequest`. If either
+fails, the debugger design is revisited with ilja before continuing.
