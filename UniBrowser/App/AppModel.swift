@@ -15,6 +15,7 @@ final class AppModel {
     var paletteMode: PaletteMode?
     var isSidebarVisible = true
     var isArchiveVisible = false
+    var isExtensionsVisible = false
     /// The page shown over the window by ⌥+click or ⌥↵; nil when Peek is closed.
     var peek: PeekPage?
     var isTabMapVisible = false

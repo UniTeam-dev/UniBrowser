@@ -46,6 +46,7 @@ struct CommandPalette: View {
         var commands: [Item] = [
             .command("Карта вкладок", shortcut: "⌘⇧M") { model.openTabMap() },
             .command("Вечерняя уборка", shortcut: nil) { model.startCleanup() },
+            .command("Расширения", shortcut: "⌘⇧E") { model.isExtensionsVisible = true },
             .command("Новая группа", shortcut: "⌘⇧G") { store.newGroup(named: q.isEmpty ? "Новая группа" : query) },
             .command("Новое пространство", shortcut: nil) { store.newSpace(named: q.isEmpty ? "Пространство \(store.spaces.count + 1)" : query) },
         ]
@@ -71,6 +72,15 @@ struct CommandPalette: View {
 
         var result: [Section] = []
         if !q.isEmpty { result.append(Section(title: "Открыть", items: [.open(query)])) }
+        if let storeID = CRX.storeID(from: query) {
+            result.append(Section(title: "Расширения", items: [
+                .command("Установить расширение \(storeID) из Chrome Web Store", shortcut: nil) {
+                    let manager = store.environment.extensions
+                    Task { await manager.installFromStore(storeID) }
+                    model.isExtensionsVisible = true
+                },
+            ]))
+        }
         if !tabs.isEmpty { result.append(Section(title: "Открытые вкладки", items: tabs.prefix(8).map(Item.tab))) }
         if !groups.isEmpty { result.append(Section(title: "Группы", items: groups.map(Item.group))) }
         if !archived.isEmpty { result.append(Section(title: "Из архива", items: archived.prefix(5).map(Item.archived))) }

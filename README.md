@@ -7,7 +7,7 @@ Native Swift/SwiftUI app on WKWebView (the system WebKit, same engine as Safari)
 
 ## Build
 
-Requires macOS 15+ and Xcode 16+.
+Requires macOS 15.4+ (WebKit's web extension API) and Xcode 16.3+.
 
 ```sh
 brew install xcodegen
@@ -30,8 +30,20 @@ Then pick your team under Signing & Capabilities and run (⌘R).
 - Session restored on relaunch.
 - Login detection, fill bar and save prompt. Storage: see
   [docs/passwords.md](docs/passwords.md) for the Passwords app status.
+- Archive: tabs removed by cleanup or "В архив" stay findable in ⌘K ("Из архива")
+  and in the sidebar's archive list.
+- Peek (⌥+click a link, ⌥↵ in ⌘K): the page opens over the window without a tab.
+- Split View: two tabs side by side (tab menu, ⌘↵ in ⌘K, or from Peek).
+- Tab map (⌘⇧M): all tabs of a space by group, drag between groups, close
+  duplicates, group loose tabs by site.
+- Evening cleanup: after 18:00, loose tabs unused for 12+ hours one by one,
+  ← archive / → keep.
+- Web extensions (⌘⇧E): install an unpacked folder (or drop it on the app icon)
+  or a Chrome Web Store link/ID; content scripts, toolbar buttons with popups and
+  badges, a permission prompt at install, enable/remove.
+  `swiftc -parse-as-library UniBrowser/Extensions/CRX.swift scripts/crx_check.swift -o /tmp/crx_check && /tmp/crx_check`
+  checks the CRX unpacking.
 
 ## Next
 
-Passwords app bridge, real favicons, tab map, Peek, Split View, evening cleanup,
-archive, downloads, passkeys.
+Real favicons, downloads, passkeys.

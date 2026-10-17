@@ -31,7 +31,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         MainActor.assumeIsolated {
-            urls.forEach { model?.store.newTab(url: $0) }
+            for url in urls {
+                // A folder with manifest.json dropped on the app is an unpacked extension.
+                if url.isFileURL, FileManager.default.fileExists(atPath: url.appending(path: "manifest.json").path(percentEncoded: false)) {
+                    Task { await model?.store.environment.extensions.installFolder(url) }
+                } else {
+                    model?.store.newTab(url: url)
+                }
+            }
         }
     }
 }

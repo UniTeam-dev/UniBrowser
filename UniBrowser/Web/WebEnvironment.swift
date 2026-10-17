@@ -8,11 +8,13 @@ final class WebEnvironment {
     weak var store: BrowserStore?
     let dataStore = WKWebsiteDataStore.default()
     let passwords: CredentialProvider
+    let extensions: ExtensionManager
     /// ⌥+click on a link; AppModel shows the URL in Peek.
     var onPeek: ((URL) -> Void)?
 
     init(passwords: CredentialProvider) {
         self.passwords = passwords
+        extensions = ExtensionManager(dataStore: dataStore)
     }
 
     /// Shared cookies and user agent, no tab scripts: what Peek's temporary page uses.
@@ -26,6 +28,8 @@ final class WebEnvironment {
 
     func makeConfiguration(for controller: TabWebController) -> WKWebViewConfiguration {
         let configuration = makeBaseConfiguration()
+        // Lets installed extensions inject content scripts into tabs.
+        configuration.webExtensionController = extensions.controller
 
         let content = WKUserContentController()
         content.addUserScript(WKUserScript(

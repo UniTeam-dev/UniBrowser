@@ -29,6 +29,8 @@ struct BrowserCommands: Commands {
             Button("Обновить") { model.store.selectedTab?.webView?.reload() }
                 .keyboardShortcut("r")
             Divider()
+            Button("Расширения…") { model.isExtensionsVisible = true }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
             Button("Подключить «Пароли»…") { Task { await model.passwords.apple.beginPairing() } }
                 .disabled(model.passwords.apple.state == .connected)
             Divider()

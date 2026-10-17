@@ -31,6 +31,8 @@ final class BrowserStore {
             archive = []
         }
         environment.store = self
+        environment.extensions.store = self
+        Task { await environment.extensions.loadAll() }
     }
 
     // MARK: - Lookup
@@ -62,6 +64,7 @@ final class BrowserStore {
     func newTab(url: URL?, inGroup groupID: UUID? = nil, select: Bool = true) -> BrowserTab {
         let tab = BrowserTab(url: url)
         tabs[tab.id] = tab
+        environment.extensions.tabOpened(tab)
         mutateActiveSpace { space in
             if let groupID, let index = space.groups.firstIndex(where: { $0.id == groupID }) {
                 space.groups[index].tabIDs.append(tab.id)
@@ -75,8 +78,9 @@ final class BrowserStore {
 
     func select(_ tabID: UUID) {
         guard let tab = tabs[tabID] else { return }
-        if let previous = activeSpace.selectedTabID, previous != tabID {
-            tabs[previous]?.captureThumbnail()
+        let previous = activeSpace.selectedTabID.flatMap { tabs[$0] }
+        if let previous, previous.id != tabID {
+            previous.captureThumbnail()
         }
         if let spaceIndex = spaces.firstIndex(where: { $0.allTabIDs.contains(tabID) }) {
             activeSpaceID = spaces[spaceIndex].id
@@ -87,12 +91,14 @@ final class BrowserStore {
             }
         }
         tab.lastActivated = .now
+        if previous?.id != tabID { environment.extensions.tabActivated(tab, previous: previous) }
         scheduleSave()
     }
 
     func closeTab(_ tabID: UUID) {
         guard let tab = tabs[tabID] else { return }
         let wasSelected = activeSpace.selectedTabID == tabID
+        environment.extensions.tabClosed(tabID)
         tab.sleep()
         tabs[tabID] = nil
         for index in spaces.indices {

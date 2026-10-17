@@ -11,6 +11,7 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 12) {
             toolbar
             addressButton
+            ExtensionBar(manager: store.environment.extensions)
             if !space.pinnedTabIDs.isEmpty {
                 PinnedGrid(tabIDs: space.pinnedTabIDs)
             }

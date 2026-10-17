@@ -30,6 +30,9 @@ struct MainWindow: View {
         .sheet(isPresented: Bindable(model).isArchiveVisible) {
             ArchiveView()
         }
+        .sheet(isPresented: Bindable(model).isExtensionsVisible) {
+            ExtensionsView(manager: store.environment.extensions)
+        }
         .overlay {
             if model.isTabMapVisible {
                 TabMapView()

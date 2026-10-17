@@ -2,7 +2,7 @@ name: UniBrowser
 options:
   bundleIdPrefix: app.unibrowser
   deploymentTarget:
-    macOS: "15.0"
+    macOS: "15.4"
   createIntermediateGroups: true
 settings:
   base:
