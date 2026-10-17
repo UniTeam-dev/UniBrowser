@@ -161,15 +161,7 @@ struct TabsSheet: View {
                 Button("Закрыть", systemImage: "xmark", role: .destructive) { store.closeTab(tabID) }
             }
             .contextMenu {
-                Button(
-                    store.activeSpace.pinnedTabIDs.contains(tabID) ? "Открепить" : "Закрепить",
-                    systemImage: "pin"
-                ) { store.togglePin(tabID) }
-                if store.isInGroup(tabID) {
-                    Button(tab.pinnedURL == nil ? "Закрепить в папке" : "Открепить в папке", systemImage: "pin.circle") {
-                        store.togglePinInGroup(tabID)
-                    }
-                }
+                Button(tab.pinnedURL == nil ? "Закрепить" : "Открепить", systemImage: "pin") { store.togglePin(tabID) }
                 if tab.isAwayFromPin {
                     Button("Вернуть на закреплённую страницу", systemImage: "pin") { store.returnToPin(tabID) }
                 }

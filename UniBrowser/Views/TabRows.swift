@@ -140,10 +140,7 @@ struct TabRow: View {
         .onHover { isHovered = $0 }
         .draggable(tab.id.uuidString)
         .contextMenu {
-            Button(store.activeSpace.pinnedTabIDs.contains(tab.id) ? "Открепить" : "Закрепить") { store.togglePin(tab.id) }
-            if store.isInGroup(tab.id) {
-                Button(tab.pinnedURL == nil ? "Закрепить в папке" : "Открепить в папке") { store.togglePinInGroup(tab.id) }
-            }
+            Button(tab.pinnedURL == nil ? "Закрепить" : "Открепить") { store.togglePin(tab.id) }
             if tab.isAwayFromPin {
                 Button("Вернуть на закреплённую страницу") { store.returnToPin(tab.id) }
             }

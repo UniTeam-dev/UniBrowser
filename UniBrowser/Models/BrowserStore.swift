@@ -143,7 +143,9 @@ final class BrowserStore {
         scheduleSave()
     }
 
+    /// A tab in a folder is pinned inside that folder; any other tab goes to the space's pinned list.
     func togglePin(_ tabID: UUID) {
+        if isInGroup(tabID) { return togglePinInGroup(tabID) }
         mutateActiveSpace { space in
             if space.pinnedTabIDs.contains(tabID) {
                 tabs[tabID]?.pinnedURL = nil
