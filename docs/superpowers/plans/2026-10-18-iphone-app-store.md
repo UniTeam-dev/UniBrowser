@@ -28,16 +28,16 @@
 
 ### Task 1: Audit and fixes
 **Files:** `mobile/UniBrowserMobile/Resources/Info.plist`, `PrivacyInfo.xcprivacy`, `mobile/project.yml`.
-- [ ] `mobile/build.sh` → BUILD SUCCEEDED; `nm -u` and `strings` the simulator binary; grep sources for KVC/selectors/dlopen.
-- [ ] Add whatever the audit shows missing (privacy reasons, product name). Rebuild. Commit.
+- [x] `mobile/build.sh` → BUILD SUCCEEDED; `nm -u` and `strings` the simulator binary; grep sources for KVC/selectors/dlopen.
+- [x] Add whatever the audit shows missing (privacy reasons, product name). Rebuild. Commit.
 
 ### Task 2: App Store export path
 **Files:** create `mobile/ExportOptions-AppStore.plist` (`method` = `app-store-connect`, `destination` = `export`, `teamID` = `7SJ59D8JGU`, `signingStyle` = `automatic`); modify `mobile/build-device.sh` (`appstore` argument: archive with automatic signing and `-allowProvisioningUpdates`, export to `build/appstore`).
-- [ ] `plutil -lint` the plist; `bash -n` the script; run `build-device.sh appstore` and record whether signing is available here. Commit.
+- [x] `plutil -lint` the plist; `bash -n` the script; run `build-device.sh appstore` and record whether signing is available here. Commit.
 
 ### Task 3: Docs
 **Files:** rewrite `docs/app-store.md` (Russian); delete `docs/superpowers/plans/2026-10-17-app-store-readiness.md`; fix `README.md`, `mobile/README.md`.
-- [ ] `grep -rn "2026-10-17-app-store\|UniBrowserDirect\|DIRECT" README.md mobile docs` → nothing stale. Commit.
+- [x] `grep -rn "2026-10-17-app-store\|UniBrowserDirect\|DIRECT" README.md mobile docs` → nothing stale. Commit.
 
 ### Task 4: Verification
-- [ ] `merge_check` passes; `mobile/build.sh` and `NO_OPEN=1 scripts/build.sh` → BUILD SUCCEEDED, 0 errors; run the simulator app; pair with the Mac app if possible.
+- [x] `merge_check` passes; `mobile/build.sh` and `NO_OPEN=1 scripts/build.sh` → BUILD SUCCEEDED, 0 errors; run the simulator app; pair with the Mac app if possible.
