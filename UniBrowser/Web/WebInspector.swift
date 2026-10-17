@@ -1,10 +1,8 @@
-#if DIRECT
 import WebKit
 
 /// WebKit's own Web Inspector (Elements, Console, Sources with the debugger, Network,
 /// Timelines, Storage), docked in the tab like Chrome's DevTools.
-/// It is private WebKit API, so it is compiled only into the build distributed from
-/// the website (the DIRECT flag), never into the App Store build (App Review guideline 2.5.1).
+/// It is private WebKit API, which is fine: the Mac app is distributed from the website only.
 @MainActor
 enum WebInspector {
     /// Adds «Inspect Element» to the page's context menu.
@@ -38,4 +36,3 @@ enum WebInspector {
         inspector.perform(selector)
     }
 }
-#endif

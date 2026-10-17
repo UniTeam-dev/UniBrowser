@@ -35,10 +35,8 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             Button("Пароли UniBrowser…") { model.isPasswordsVisible = true }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
-            #if DIRECT
             Button("Подключить «Пароли»…") { Task { await model.passwords.apple.beginPairing() } }
                 .disabled(model.passwords.apple.state == .connected)
-            #endif
             Button("iPhone…") { openWindow(id: "iphone") }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
             Divider()
@@ -57,7 +55,6 @@ struct BrowserCommands: Commands {
             Button("Новое пространство") { model.store.newSpace(named: "Пространство \(model.store.spaces.count + 1)") }
         }
 
-        #if DIRECT
         CommandMenu("Разработка") {
             Button("Инструменты разработчика") { inspect(WebInspector.toggle) }
                 .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF12FunctionKey)!)), modifiers: [])
@@ -66,7 +63,6 @@ struct BrowserCommands: Commands {
             Button("Выбрать элемент на странице") { inspect(WebInspector.pickElement) }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
         }
-        #endif
 
         CommandGroup(after: .sidebar) {
             Button(model.isSidebarVisible ? "Скрыть панель вкладок" : "Показать панель вкладок") {
@@ -76,9 +72,7 @@ struct BrowserCommands: Commands {
         }
     }
 
-    #if DIRECT
     private func inspect(_ action: (WKWebView) -> Void) {
         if let webView = model.store.selectedTab?.webView { action(webView) }
     }
-    #endif
 }

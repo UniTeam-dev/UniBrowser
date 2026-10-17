@@ -23,9 +23,7 @@ final class WebEnvironment {
         configuration.websiteDataStore = dataStore
         configuration.preferences.isElementFullscreenEnabled = true
         configuration.applicationNameForUserAgent = "Version/18.0 Safari/605.1.15"
-        #if DIRECT
         WebInspector.enable(configuration)
-        #endif
         return configuration
     }
 

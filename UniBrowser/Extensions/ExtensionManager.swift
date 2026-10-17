@@ -81,8 +81,8 @@ final class ExtensionManager: NSObject {
 
     // MARK: - Installing
 
-    /// An unpacked extension folder (with manifest.json). Copied into the container:
-    /// the sandbox only lets the app read the picked folder until it quits.
+    /// An unpacked extension folder (with manifest.json). Copied, so moving or
+    /// deleting the picked folder doesn't break the installed extension.
     func installFolder(_ url: URL) async {
         let copy = Self.directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         do {

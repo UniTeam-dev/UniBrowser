@@ -13,7 +13,7 @@
 
 1. Пропишу Team ID в проект и включу подпись **Developer ID** и нотаризацию:
    помощник «Паролей» запускается только из нотаризованного браузера.
-2. Закреплю идентификатор сборки с сайта (сейчас `app.unibrowser.UniBrowser.direct`; у App Store-сборки `app.unibrowser.UniBrowser`, её «Пароли» не касаются).
+2. Закреплю идентификатор Mac-приложения `app.unibrowser.UniBrowser`.
    После заявки менять его нельзя.
 3. Подготовлю заявку (pull request) в
    https://github.com/apple/password-manager-resources: новую запись в

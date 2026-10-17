@@ -17,8 +17,9 @@ open UniBrowser.xcodeproj
 
 Then pick your team under Signing & Capabilities and run (⌘R).
 
-Two Mac targets: `UniBrowser` (Mac App Store, sandboxed) and `UniBrowserDirect`
-(website, Developer ID, `DIRECT` flag). See [docs/app-store.md](docs/app-store.md).
+The Mac app is distributed from the website only (Developer ID, no App Sandbox,
+private WebKit API allowed). The iPhone app goes to the App Store, see
+[docs/app-store.md](docs/app-store.md).
 
 ## What works in this first version
 

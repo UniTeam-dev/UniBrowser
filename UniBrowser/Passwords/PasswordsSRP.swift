@@ -1,5 +1,3 @@
-// Direct (Developer ID) build only: launches a system helper, which App Sandbox and App Review rule out.
-#if DIRECT
 import BigInt
 import CryptoKit
 import Foundation
@@ -127,4 +125,3 @@ struct PasswordsSRP {
         return Data(bytes)
     }
 }
-#endif

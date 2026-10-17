@@ -14,13 +14,8 @@ app (iCloud Keychain), like Safari does.
 | Passkeys (`ASAuthorizationWebBrowserPublicKeyCredentialManager`) | Yes. Browsers may use passkeys stored in Passwords for any site. Planned. |
 | `PasswordManagerBrowserExtensionHelper` (what the iCloud Passwords extension in Chrome/Edge/Firefox uses) | Yes, read **and** save, but only once Apple adds UniBrowser to its browser allowlist. |
 
-## Two builds
-
-The bridge below exists only in the website build (target `UniBrowserDirect`,
-compile flag `DIRECT`, no App Sandbox). The Mac App Store build (target
-`UniBrowser`) leaves it out: launching an Apple system binary over an
-undocumented protocol is ruled out by App Sandbox and guideline 2.5.1. There
-logins always use the keychain store from step 3.
+The Mac app has no App Sandbox (it is distributed from the website only), so
+it can launch the Apple system helper the bridge below talks to.
 
 ## The plan
 
@@ -38,7 +33,7 @@ logins always use the keychain store from step 3.
    in by opening a PR there with their bundle ID and Team ID; it then ships with
    a later macOS update. That needs:
    - a paid Apple Developer account (Team ID, Developer ID signing);
-   - a final bundle ID (the website build is `app.unibrowser.UniBrowser.direct`);
+   - a final bundle ID (`app.unibrowser.UniBrowser`);
    - a public download page for the browser, which the PR links to.
 3. **Until then:** logins are saved in UniBrowser's own items in the login
    keychain (`KeychainCredentialProvider`). They work for filling and saving but

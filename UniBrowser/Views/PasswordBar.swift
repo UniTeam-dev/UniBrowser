@@ -61,19 +61,12 @@ struct PasswordBar: View {
         }
     }
 
-    // Apple Passwords pairing exists only in the Direct build.
     private var canPairApplePasswords: Bool {
-        #if DIRECT
         model.passwords.apple.state == .readyToPair
-        #else
-        false
-        #endif
     }
 
     private func pairApplePasswords() {
-        #if DIRECT
         Task { await model.passwords.apple.beginPairing() }
-        #endif
     }
 
     private func bar<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

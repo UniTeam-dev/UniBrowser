@@ -1,13 +1,10 @@
 #!/bin/bash
 # Generates the Xcode project and builds UniBrowser; the full log goes to build.log
 # so it can be read back without copying from the terminal.
-#   scripts/build.sh          App Store build (sandboxed)
-#   scripts/build.sh direct   website build (Developer ID, DIRECT flag)
 # NO_OPEN=1 skips launching the app.
 set -o pipefail
 cd "$(dirname "$0")/.."
 target=UniBrowser
-[ "$1" = direct ] && target=UniBrowserDirect
 command -v xcodegen >/dev/null || brew install xcodegen || exit 1
 xcodegen generate || exit 1
 xcodebuild -project UniBrowser.xcodeproj -scheme $target -configuration Debug \
