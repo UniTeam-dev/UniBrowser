@@ -5,18 +5,13 @@ struct MainWindow: View {
     @Environment(BrowserStore.self) private var store
 
     var body: some View {
-        HStack(spacing: 0) {
-            if model.isSidebarVisible {
+        VStack(spacing: 0) {
+            AddressStrip()
+            HStack(spacing: 0) {
                 SidebarView()
-                    .frame(width: 290)
-                    .transition(.move(edge: .leading))
-            }
-            VStack(spacing: 0) {
-                if !model.isSidebarVisible {
-                    showSidebarBar
-                }
+                    .frame(width: model.isSidebarCompact ? 56 : 290)
                 ContentArea()
-                    .padding(EdgeInsets(top: 8, leading: model.isSidebarVisible ? 0 : 8, bottom: 8, trailing: 8))
+                    .padding(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 8))
             }
         }
         .background(Palette.sidebar)
@@ -62,23 +57,96 @@ struct MainWindow: View {
             }
         }
     }
+}
 
-    /// With the sidebar hidden, a strip beside the traffic lights keeps a way to bring it back.
-    private var showSidebarBar: some View {
-        HStack(spacing: 8) {
+/// The title-bar row across the window, the same with either sidebar width: sidebar toggle,
+/// back/forward/reload, the current page's full URL and extension buttons. Drags the window outside its controls.
+struct AddressStrip: View {
+    @Environment(AppModel.self) private var model
+    @Environment(BrowserStore.self) private var store
+
+    var body: some View {
+        let tab = store.selectedTab
+        HStack(spacing: 6) {
             Spacer().frame(width: 64) // room for the window's traffic lights
-            Button { withAnimation(.snappy) { model.isSidebarVisible = true } } label: {
-                Image(systemName: "sidebar.left").frame(width: 22, height: 22).contentShape(Rectangle())
+            iconButton("sidebar.left", label: model.isSidebarCompact ? "Полная панель вкладок (⌃⌘S)" : "Компактная панель вкладок (⌃⌘S)") {
+                withAnimation(.snappy) { model.isSidebarCompact.toggle() }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Palette.secondaryText)
-            .help("Показать панель вкладок (⌃⌘S)")
-            .accessibilityLabel("Показать панель вкладок")
-            Spacer()
+            iconButton("chevron.left", label: "Назад", enabled: tab?.canGoBack == true) { tab?.webView?.goBack() }
+            iconButton("chevron.right", label: "Вперёд", enabled: tab?.canGoForward == true) { tab?.webView?.goForward() }
+            if tab?.isLoading == true {
+                iconButton("xmark", label: "Остановить") { tab?.webView?.stopLoading() }
+            } else {
+                iconButton("arrow.clockwise", label: "Обновить", enabled: tab?.url != nil) { tab?.webView?.reload() }
+            }
+            addressButton(tab?.url)
+            if let url = tab?.url {
+                iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }
+            }
+            ExtensionBar(manager: store.environment.extensions)
         }
         .font(.system(size: 13))
-        .frame(height: 22)
-        .padding(EdgeInsets(top: 12, leading: 10, bottom: 0, trailing: 10))
+        .padding(.horizontal, 10)
+        .frame(height: 38)
+        .background(Color.clear.contentShape(Rectangle()).gesture(WindowDragGesture()))
+    }
+
+    private func addressButton(_ url: URL?) -> some View {
+        Button { model.openPalette(.address) } label: {
+            HStack(spacing: 6) {
+                switch url?.scheme {
+                case "https": Image(systemName: "lock.fill").foregroundStyle(Palette.secondaryText)
+                case "http": Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).help("Соединение не защищено")
+                case nil: Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondaryText)
+                default: EmptyView()
+                }
+                // The whole URL, the domain in full colour; long ones lose their middle, not the end.
+                Group {
+                    if let url {
+                        let full = url.absoluteString
+                        if let host = url.host(), let range = full.range(of: host) {
+                            Text(full[..<range.lowerBound]).foregroundColor(Palette.secondaryText)
+                                + Text(host)
+                                + Text(full[range.upperBound...]).foregroundColor(Palette.secondaryText)
+                        } else {
+                            Text(full)
+                        }
+                    } else {
+                        Text("Поиск или адрес").foregroundStyle(Palette.secondaryText)
+                    }
+                }
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(url?.absoluteString ?? "")
+        .contextMenu {
+            if let url {
+                Button("Скопировать адрес") { copy(url) }
+            }
+        }
+    }
+
+    private func copy(_ url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    }
+
+    private func iconButton(_ symbol: String, label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).frame(width: 24, height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? Palette.secondaryText : Color(hex: "#A1A1A6"))
+        .disabled(!enabled)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }
 

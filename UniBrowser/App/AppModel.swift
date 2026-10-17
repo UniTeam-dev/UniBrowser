@@ -3,7 +3,7 @@ import Observation
 import WebKit
 
 /// Owns the long-lived objects and the window's transient UI state
-/// (command palette, Ctrl+Tab switcher, sidebar visibility).
+/// (command palette, Ctrl+Tab switcher, sidebar width).
 @MainActor
 @Observable
 final class AppModel {
@@ -16,7 +16,10 @@ final class AppModel {
     let viaMac = ViaMacHost()
 
     var paletteMode: PaletteMode?
-    var isSidebarVisible = true
+    /// The sidebar as a 56 pt column of icons instead of the 290 pt list; kept across launches.
+    var isSidebarCompact = UserDefaults.standard.bool(forKey: "sidebarCompact") {
+        didSet { UserDefaults.standard.set(isSidebarCompact, forKey: "sidebarCompact") }
+    }
     var isArchiveVisible = false
     var isExtensionsVisible = false
     var isPasswordsVisible = false

@@ -1,8 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The vertical tab panel from the approved design: toolbar, address button,
-/// the space rail beside the space's folder groups and today's tabs.
+/// The vertical tab panel from the approved design: the space rail beside the space's
+/// folder groups and today's tabs, or in compact mode one column of tab and space icons.
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
     @Environment(BrowserStore.self) private var store
@@ -12,23 +12,67 @@ struct SidebarView: View {
 
     var body: some View {
         let space = store.activeSpace
-        VStack(alignment: .leading, spacing: 12) {
-            toolbar
-            addressButton
-            ExtensionBar(manager: store.environment.extensions)
-            HStack(alignment: .top, spacing: 8) {
-                SpaceRail(rename: startRenamingSpace)
+        Group {
+            if model.isSidebarCompact {
+                compactColumn(space)
+                    .padding(EdgeInsets(top: 2, leading: 12, bottom: 10, trailing: 12))
+            } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    spaceHeader(space)
-                    tabList(space)
+                    HStack(alignment: .top, spacing: 8) {
+                        SpaceRail(rename: startRenamingSpace)
+                        VStack(alignment: .leading, spacing: 12) {
+                            spaceHeader(space)
+                            tabList(space)
+                        }
+                    }
+                    bottomBar
                 }
+                .padding(EdgeInsets(top: 2, leading: 10, bottom: 10, trailing: 10))
             }
-            bottomBar
         }
         .font(.system(size: 13))
         .foregroundStyle(Palette.text)
-        .padding(EdgeInsets(top: 12, leading: 10, bottom: 10, trailing: 10))
         .onChange(of: store.activeSpaceID) { isRenamingSpace = false }
+    }
+
+    /// Compact mode: pinned tabs, each folder's tabs, today's tabs, then spaces and the archive.
+    private func compactColumn(_ space: Space) -> some View {
+        VStack(spacing: 10) {
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(space.pinnedTabIDs, id: \.self) { id in
+                        if let tab = store.tab(id) { TabRow(tab: tab, isCompact: true) }
+                    }
+                    if !space.pinnedTabIDs.isEmpty { compactDivider }
+                    ForEach(space.groups.filter { !$0.tabIDs.isEmpty }) { group in
+                        ForEach(store.orderedTabIDs(group), id: \.self) { id in
+                            if let tab = store.tab(id) { TabRow(tab: tab, isCompact: true) }
+                        }
+                        compactDivider
+                    }
+                    ForEach(space.looseTabIDs, id: \.self) { id in
+                        if let tab = store.tab(id) { TabRow(tab: tab, isCompact: true) }
+                    }
+                    Button { model.openPalette(.newTab) } label: {
+                        Image(systemName: "plus").frame(width: 32, height: 32).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Palette.secondaryText)
+                    .help("Новая вкладка")
+                    .accessibilityLabel("Новая вкладка")
+                }
+            }
+            .scrollIndicators(.never)
+            SpaceRail {
+                withAnimation(.snappy) { model.isSidebarCompact = false }
+                startRenamingSpace()
+            }
+            iconButton("archivebox", label: "Архив") { model.isArchiveVisible = true }
+        }
+    }
+
+    private var compactDivider: some View {
+        Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 20, height: 1).padding(.vertical, 3)
     }
 
     private func tabList(_ space: Space) -> some View {
@@ -66,63 +110,6 @@ struct SidebarView: View {
         draftSpaceName = store.activeSpace.name
         isRenamingSpace = true
         isSpaceNameFocused = true
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 8) {
-            Spacer().frame(width: 64) // room for the window's traffic lights
-            Spacer()
-            iconButton("sidebar.left", label: "Скрыть панель") {
-                withAnimation(.snappy) { model.isSidebarVisible = false }
-            }
-            iconButton("chevron.left", label: "Назад", enabled: store.selectedTab?.canGoBack == true) {
-                store.selectedTab?.webView?.goBack()
-            }
-            iconButton("chevron.right", label: "Вперёд", enabled: store.selectedTab?.canGoForward == true) {
-                store.selectedTab?.webView?.goForward()
-            }
-        }
-        .frame(height: 22)
-    }
-
-    private var addressButton: some View {
-        Button { model.openPalette(.address) } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondaryText)
-                // Domain in full, the path dimmed after it; a click opens the whole URL to read or copy.
-                Group {
-                    if let url = store.selectedTab?.url, let host = url.host() {
-                        let rest = url.absoluteString.components(separatedBy: host).dropFirst().joined(separator: host)
-                        Text(host.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression))
-                            + Text(rest == "/" ? "" : rest).foregroundColor(Palette.secondaryText)
-                    } else {
-                        Text("Поиск или адрес")
-                    }
-                }
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Text("⌘K")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.secondaryText)
-                    .padding(.horizontal, 5)
-                    .background(Palette.surface.opacity(0.7), in: RoundedRectangle(cornerRadius: 4))
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 34)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .help(store.selectedTab?.url?.absoluteString ?? "")
-        .contextMenu {
-            if let url = store.selectedTab?.url {
-                Button("Скопировать адрес") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(url.absoluteString, forType: .string)
-                }
-            }
-        }
-        .buttonStyle(.plain)
     }
 
     private func spaceHeader(_ space: Space) -> some View {
@@ -173,13 +160,13 @@ struct SidebarView: View {
         .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1) }
     }
 
-    private func iconButton(_ symbol: String, label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+    private func iconButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).frame(width: 22, height: 22).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(enabled ? Palette.secondaryText : Color(hex: "#A1A1A6"))
-        .disabled(!enabled)
+        .foregroundStyle(Palette.secondaryText)
+        .help(label)
         .accessibilityLabel(label)
     }
 }

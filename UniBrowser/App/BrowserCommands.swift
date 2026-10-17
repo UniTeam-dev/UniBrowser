@@ -65,8 +65,8 @@ struct BrowserCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
-            Button(model.isSidebarVisible ? "Скрыть панель вкладок" : "Показать панель вкладок") {
-                withAnimation(.snappy) { model.isSidebarVisible.toggle() }
+            Button(model.isSidebarCompact ? "Полная панель вкладок" : "Компактная панель вкладок") {
+                withAnimation(.snappy) { model.isSidebarCompact.toggle() }
             }
             .keyboardShortcut("s", modifiers: [.command, .control])
         }
