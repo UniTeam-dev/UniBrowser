@@ -12,6 +12,9 @@
   const ub = {};
   ub.frame = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   ub.attached = false;
+  // The page's fetch before Сеть wraps it: the panel's own loads (sources, stylesheets)
+  // must not show up in the network log.
+  ub.nativeFetch = window.fetch.bind(window);
   const modules = new Map(); // name -> object of functions (+ optional attach/detach)
   const rings = [];          // every ring, drained in order on attach
 
@@ -1514,7 +1517,7 @@
         const element = (kind === 'style' ? document.querySelectorAll('style') : document.scripts)[inline];
         return { text: element ? element.textContent : '' };
       }
-      const response = await fetch(url, { cache: 'force-cache' });
+      const response = await ub.nativeFetch(url, { cache: 'force-cache' });
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const text = await response.text();
       const sourceMap = response.headers.get('SourceMap') || response.headers.get('X-SourceMap') || undefined;
@@ -2796,7 +2799,7 @@
 
   ub.module('coverage', (ub) => {
     const DYNAMIC = /:(hover|active|focus|focus-visible|focus-within)\b/;
-    const fetchText = ub.nativeFetch || window.fetch; // merge: Сеть may expose the unwrapped fetch as ub.nativeFetch
+    const fetchText = ub.nativeFetch;
     const utf8 = (text) => new TextEncoder().encode(text).length;
     let rec = null;
 

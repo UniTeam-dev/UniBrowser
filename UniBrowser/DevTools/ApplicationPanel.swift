@@ -147,6 +147,8 @@ struct ApplicationPanel: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden) // the sidebar material shows the desktop through the panel
+            .background(Color(nsColor: .controlBackgroundColor))
             Divider()
             HStack {
                 Button { Task { await model.refresh() } } label: { Label("Обновить", systemImage: "arrow.clockwise") }

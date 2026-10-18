@@ -170,7 +170,8 @@ struct CommandPalette: View {
         }
         .onAppear {
             if mode == .address, let url = store.selectedTab?.url { query = url.absoluteString }
-            isFocused = true
+            // Next turn of the run loop: a click on a sidebar button would otherwise keep the focus.
+            DispatchQueue.main.async { isFocused = true }
         }
         .onChange(of: query) { selection = 0 }
     }

@@ -180,7 +180,7 @@ struct TabPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PasswordBar(tab: tab)
+            PasswordBar(tab: tab).id(tab.id) // its error message belongs to this tab
             DevToolsDock(tab: tab) {
                 DeviceFrame(tab: tab) {
                     ZStack(alignment: .top) {

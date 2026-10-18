@@ -15,7 +15,7 @@ struct PasswordBar: View {
                      ? "Сохранить пароль для **\(pending.host)** в «\(model.passwords.displayName)»?"
                      : "Сохранить пароль **\(pending.username)** для \(pending.host) в «\(model.passwords.displayName)»?")
                 Spacer()
-                Button("Не сейчас") { tab.pendingSave = nil }
+                Button("Не сейчас") { tab.pendingSave = nil; error = nil }
                 Button("Сохранить") {
                     Task {
                         do {
