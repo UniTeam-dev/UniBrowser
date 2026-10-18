@@ -25,6 +25,8 @@ final class MobileTab: Identifiable {
     var pendingSave: SyncedCredential?
     /// The site's zoom from «aA» in «…».
     var pageZoom = 1.0
+    /// A camera/microphone request waiting in the bar above the page.
+    var permissionRequest: PermissionRequest?
 
     @ObservationIgnored private(set) var webView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
@@ -88,6 +90,8 @@ final class MobileTab: Identifiable {
 
     /// Frees the web view. The tab keeps its URL and title and reloads on the next wake.
     func sleep() {
+        permissionRequest?.cancel()
+        permissionRequest = nil
         observations.removeAll()
         webView?.stopLoading()
         webView?.removeFromSuperview()

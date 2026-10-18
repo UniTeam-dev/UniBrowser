@@ -24,6 +24,10 @@ final class BrowserTab: Identifiable {
     var loginOffers: [Credential] = []
     /// A login the user just submitted that is not saved yet.
     var pendingSave: Credential?
+    /// A camera/microphone/geolocation/notifications request waiting in the bar above the page.
+    var permissionRequest: PermissionRequest?
+    /// Loads the content blocker stopped on this page.
+    var blockedCount = 0
     /// The page has a visible password field.
     var hasLoginForm = false
     /// The frame that showed the login form (the page itself or an iframe), where `fill` types.
@@ -120,6 +124,8 @@ final class BrowserTab: Identifiable {
 
     /// Frees the web view. The tab keeps its URL and title and reloads on the next wake.
     func sleep() {
+        permissionRequest?.cancel()
+        permissionRequest = nil
         observations.removeAll()
         devTools?.close()
         devTools = nil

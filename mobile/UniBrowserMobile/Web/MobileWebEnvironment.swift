@@ -10,17 +10,26 @@ final class MobileWebEnvironment {
     let mode: BrowsingMode
     let dataStore: WKWebsiteDataStore
     let passwords: PhonePasswords
+    /// Per-site camera/microphone decisions and the ad-blocking allow list.
+    let siteSettings: SiteSettingsStore
+
+    /// The «Приватный» mode: in-memory site data, no session file, never synced.
+    /// History recording must check this and record nothing.
+    var isPrivate: Bool { mode == .private }
 
     /// Fixed so the via-Mac cookies survive relaunches and stay apart from the normal mode.
     private static let viaMacStoreID = UUID(uuidString: "6B1F3C2E-8D4A-4F0B-9E57-2C1A9D7E5B30")!
 
-    init(mode: BrowsingMode, passwords: PhonePasswords) {
+    init(mode: BrowsingMode, passwords: PhonePasswords, siteSettings: SiteSettingsStore) {
         self.mode = mode
         self.passwords = passwords
+        self.siteSettings = siteSettings
         switch mode {
         case .direct: dataStore = .default()
         case .viaMac: dataStore = WKWebsiteDataStore(forIdentifier: Self.viaMacStoreID)
+        case .private: dataStore = .nonPersistent()
         }
+        ContentBlocker.shared.prepare()
     }
 
     func makeConfiguration(for controller: MobileTabController) -> WKWebViewConfiguration {
@@ -71,6 +80,8 @@ final class WeakScriptHandler: NSObject, WKScriptMessageHandler {
 final class MobileTabController: NSObject {
     private weak var tab: MobileTab?
     private weak var environment: MobileWebEnvironment?
+    /// Content-blocker lists on this web view's loads now (see ContentBlocker.apply).
+    private var blockingLists = 0
 
     init(tab: MobileTab, environment: MobileWebEnvironment) {
         self.tab = tab
@@ -79,8 +90,18 @@ final class MobileTabController: NSObject {
 }
 
 extension MobileTabController: WKNavigationDelegate {
-    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
-        action.shouldPerformDownload ? .download : .allow // <a download>, blob: and data: links
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor action: WKNavigationAction,
+        preferences: WKWebpagePreferences
+    ) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+        if action.shouldPerformDownload { return (.download, preferences) } // <a download>, blob: and data: links
+        if action.targetFrame?.isMainFrame == true, let environment {
+            await ContentBlocker.shared.prepare().value
+            ContentBlocker.shared.apply(to: webView.configuration.userContentController, url: action.request.url,
+                                        settings: environment.siteSettings, applied: &blockingLists)
+        }
+        return (.allow, preferences)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
@@ -96,6 +117,7 @@ extension MobileTabController: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        tab?.permissionRequest?.cancel()
         tab?.loginOffers = []
         tab?.applyZoom(PageZoom.level(for: webView.url?.host()))
         // A login usually redirects; the save prompt waits for the user unless the site changed.
@@ -110,6 +132,30 @@ extension MobileTabController: WKNavigationDelegate {
 }
 
 extension MobileTabController: WKUIDelegate {
+    /// Camera and microphone: the stored decision, or the bar above the page. Public API (iOS 15+).
+    /// Geolocation has no public delegate on iOS; WebKit asks for it with its own alert.
+    func webView(
+        _ webView: WKWebView,
+        decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
+        initiatedBy frame: WKFrameInfo,
+        type: WKMediaCaptureType
+    ) async -> WKPermissionDecision {
+        guard let tab, let environment else { return .deny }
+        let permissions: [SitePermission] = switch type {
+        case .camera: [.camera]
+        case .microphone: [.microphone]
+        default: [.camera, .microphone]
+        }
+        var shown: PermissionRequest?
+        let allowed = await environment.siteSettings.resolve(permissions, host: origin.host) { request in
+            tab.permissionRequest?.cancel()
+            tab.permissionRequest = request
+            shown = request
+        }
+        if let shown, tab.permissionRequest === shown { tab.permissionRequest = nil }
+        return allowed ? .grant : .deny
+    }
+
     /// target="_blank" and window.open land in a new tab.
     func webView(
         _ webView: WKWebView,

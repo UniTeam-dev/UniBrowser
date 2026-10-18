@@ -6,6 +6,8 @@ import WebKit
 final class TabWebController: NSObject {
     private weak var tab: BrowserTab?
     private weak var environment: WebEnvironment?
+    /// Content-blocker lists on this web view's loads now (see ContentBlocker.apply).
+    private var blockingLists = 0
 
     init(tab: BrowserTab, environment: WebEnvironment) {
         self.tab = tab
@@ -33,6 +35,11 @@ extension TabWebController: WKNavigationDelegate {
         }
         // <a download>, blob: and data: links included.
         if action.shouldPerformDownload { return (.download, preferences) }
+        if action.targetFrame?.isMainFrame == true, let environment {
+            await ContentBlocker.shared.prepare().value
+            ContentBlocker.shared.apply(to: webView.configuration.userContentController, url: action.request.url,
+                                        settings: environment.siteSettings, applied: &blockingLists)
+        }
         // «Рендеринг» → «Отключить JavaScript»; injected scripts (devtools.js) still run.
         if tab?.devTools?.rendering.isJavaScriptDisabled == true { preferences.allowsContentJavaScript = false }
         // DevTools «Отключить кэш»: a reload becomes reloadFromOrigin.
@@ -57,6 +64,8 @@ extension TabWebController: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        tab?.blockedCount = 0
+        tab?.permissionRequest?.cancel()
         tab?.loginOffers = []
         tab?.applyZoom(PageZoom.level(for: webView.url?.host()))
         // The save prompt outlives the navigation: a login usually redirects, often to another
@@ -76,7 +85,59 @@ extension TabWebController: WKNavigationDelegate {
     }
 }
 
+// MARK: - Private WebKit (website build): blocked-request count, geolocation, notifications
+
+extension TabWebController {
+    /// WKNavigationDelegatePrivate: a content-blocker rule acted on a load of this page.
+    @objc(_webView:contentRuleListWithIdentifier:performedAction:forURL:)
+    func contentRuleListPerformedAction(_ webView: WKWebView, identifier: String, action: NSObject, url: URL) {
+        if action.value(forKey: "blockedLoad") as? Bool == true { tab?.blockedCount += 1 }
+    }
+
+    /// WKUIDelegatePrivate: navigator.geolocation. WebKit denies it without this.
+    @objc(_webView:requestGeolocationPermissionForFrame:decisionHandler:)
+    func requestGeolocationPermission(_ webView: WKWebView, frame: WKFrameInfo, decisionHandler: @escaping (Bool) -> Void) {
+        let host = frame.securityOrigin.host
+        Task { decisionHandler(await ask([.geolocation], host: host)) }
+    }
+
+    /// WKUIDelegatePrivate: Notification.requestPermission(). Only the decision is kept: showing
+    /// web notifications needs WebKit's private notification provider, which isn't wired.
+    @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)
+    func requestNotificationPermission(_ webView: WKWebView, origin: WKSecurityOrigin, decisionHandler: @escaping (Bool) -> Void) {
+        let host = origin.host
+        Task { decisionHandler(await ask([.notifications], host: host)) }
+    }
+
+    /// The stored decision, or the tab's prompt bar.
+    func ask(_ permissions: [SitePermission], host: String) async -> Bool {
+        guard let tab, let environment else { return false }
+        var shown: PermissionRequest?
+        let allowed = await environment.siteSettings.resolve(permissions, host: host) { request in
+            tab.permissionRequest?.cancel()
+            tab.permissionRequest = request
+            shown = request
+        }
+        if let shown, tab.permissionRequest === shown { tab.permissionRequest = nil }
+        return allowed
+    }
+}
+
 extension TabWebController: WKUIDelegate {
+    func webView(
+        _ webView: WKWebView,
+        decideMediaCapturePermissionsFor origin: WKSecurityOrigin,
+        initiatedBy frame: WKFrameInfo,
+        type: WKMediaCaptureType
+    ) async -> WKPermissionDecision {
+        let permissions: [SitePermission] = switch type {
+        case .camera: [.camera]
+        case .microphone: [.microphone]
+        default: [.camera, .microphone]
+        }
+        return await ask(permissions, host: origin.host) ? .grant : .deny
+    }
+
     /// target="_blank" and window.open land in a new tab.
     func webView(
         _ webView: WKWebView,

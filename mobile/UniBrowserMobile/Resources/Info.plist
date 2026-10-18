@@ -39,6 +39,13 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<!-- WebKit asks for these only when a site the user opened calls getUserMedia or navigator.geolocation. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Сайт, которому вы разрешили, использует камеру — например, для видеозвонка.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Сайт, которому вы разрешили, использует микрофон — например, для звонка.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Сайт, которому вы разрешили, узнаёт вашу геопозицию — например, чтобы показать карту.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>UniBrowser подключается к вашему Mac в режиме «Через Mac».</string>
 	<!-- Only standard encryption (HTTPS, QUIC/TLS in iroh, CryptoKit): exempt from export filings. -->

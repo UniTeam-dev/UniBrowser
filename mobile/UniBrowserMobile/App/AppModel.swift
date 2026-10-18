@@ -6,7 +6,8 @@ import Observation
 @Observable
 final class AppModel {
     var mode: BrowsingMode {
-        didSet { UserDefaults.standard.set(mode.rawValue, forKey: Self.modeKey) }
+        // Private isn't remembered: a relaunch opens the normal mode.
+        didSet { UserDefaults.standard.set(mode == .private ? BrowsingMode.direct.rawValue : mode.rawValue, forKey: Self.modeKey) }
     }
 
     let passwords: PhonePasswords
@@ -14,6 +15,10 @@ final class AppModel {
     /// The Mac's spaces, groups and tabs, mirrored live while connected.
     let viaMac: MobileStore
     let relay: MacRelay
+    /// Saved per-site decisions, shared by the normal and via-Mac modes.
+    let siteSettings = SiteSettingsStore.persistent()
+    /// «Приватный»: replaced, with its in-memory cookies, each time the user leaves it.
+    private(set) var privateStore: MobileStore
 
     private static let modeKey = "browsingMode"
 
@@ -21,12 +26,13 @@ final class AppModel {
         mode = UserDefaults.standard.string(forKey: Self.modeKey).flatMap(BrowsingMode.init(rawValue:)) ?? .direct
         let passwords = PhonePasswords()
         self.passwords = passwords
-        direct = MobileStore(mode: .direct, environment: MobileWebEnvironment(mode: .direct, passwords: passwords))
+        direct = MobileStore(mode: .direct, environment: MobileWebEnvironment(mode: .direct, passwords: passwords, siteSettings: siteSettings))
+        privateStore = Self.makePrivateStore(passwords: passwords, siteSettings: siteSettings)
 
         let relay = MacRelay()
         self.relay = relay
 
-        let viaMacEnvironment = MobileWebEnvironment(mode: .viaMac, passwords: passwords)
+        let viaMacEnvironment = MobileWebEnvironment(mode: .viaMac, passwords: passwords, siteSettings: siteSettings)
         viaMacEnvironment.apply(proxies: MacRelay.proxyConfigurations())
         viaMac = MobileStore(mode: .viaMac, environment: viaMacEnvironment)
         relay.attach(store: viaMac, passwords: passwords)
@@ -36,13 +42,22 @@ final class AppModel {
         switch mode {
         case .direct: direct
         case .viaMac: viaMac
+        case .private: privateStore
         }
+    }
+
+    private static func makePrivateStore(passwords: PhonePasswords, siteSettings: SiteSettingsStore) -> MobileStore {
+        MobileStore(mode: .private, environment: MobileWebEnvironment(mode: .private, passwords: passwords, siteSettings: siteSettings.privateCopy()))
     }
 
     func switchMode(to newMode: BrowsingMode) {
         guard newMode != mode else { return }
         // Only the visible mode keeps a live page.
         store.selectedTab?.sleep()
+        // Leaving private mode closes its tabs; a fresh store on entering forgets the old
+        // cookies and storage and starts from the site decisions saved by now.
+        if mode == .private { privateStore.removeAllTabs() }
+        if newMode == .private { privateStore = Self.makePrivateStore(passwords: passwords, siteSettings: siteSettings) }
         mode = newMode
     }
 

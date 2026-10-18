@@ -46,15 +46,29 @@ final class AppModel {
     @ObservationIgnored private var keyMonitor: Any?
     @ObservationIgnored private var lastConsumedKeyTimestamp: TimeInterval = 0
 
-    init() {
-        let passwords = PasswordsService()
+    /// A «Новое приватное окно» (⇧⌘N) model: its own store and in-memory site data, no
+    /// session file, no history, not mirrored to the iPhone. `store.environment.isPrivate` too.
+    let isPrivate: Bool
+    /// The window this model drives; set by MainWindow. Keys in a private window go to its own model.
+    @ObservationIgnored weak var window: NSWindow? {
+        didSet { if isPrivate, let window { Self.privateWindows.add(window) } }
+    }
+    @ObservationIgnored private static let privateWindows = NSHashTable<NSWindow>.weakObjects()
+
+    convenience init() {
+        self.init(passwords: PasswordsService(), siteSettings: .persistent(), isPrivate: false)
+    }
+
+    private init(passwords: PasswordsService, siteSettings: SiteSettingsStore, isPrivate: Bool) {
         self.passwords = passwords
-        self.store = BrowserStore(environment: WebEnvironment(passwords: passwords))
+        self.isPrivate = isPrivate
+        self.store = BrowserStore(environment: WebEnvironment(passwords: passwords, siteSettings: siteSettings, isPrivate: isPrivate))
+        installTabSwitcherMonitor()
+        store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
+        guard !isPrivate else { return } // a private window keeps no history and isn't mirrored
         history.prune()
         store.environment.history = history
         viaMac.attach(store: store, passwords: passwords.builtIn, history: history, bookmarks: bookmarks)
-        installTabSwitcherMonitor()
-        store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
             while !Task.isCancelled {
@@ -62,6 +76,27 @@ final class AppModel {
                 try? await Task.sleep(for: .seconds(300))
             }
         }
+    }
+
+    // MARK: - Private windows
+
+    /// Shares the logins; permission decisions start from the saved ones and stay in memory.
+    func makePrivateModel() -> AppModel {
+        AppModel(passwords: passwords, siteSettings: store.environment.siteSettings.privateCopy(), isPrivate: true)
+    }
+
+    /// The private window closed: its pages go, and with the last reference its data store.
+    func tearDown() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+        closePeek()
+        for space in store.spaces { space.allTabIDs.forEach { store.tab($0)?.sleep() } }
+    }
+
+    /// Each window's keys go to its own model; windows that aren't private (iPhone, Settings) to the main one.
+    private func owns(_ event: NSEvent) -> Bool {
+        guard let eventWindow = event.window else { return !isPrivate }
+        return isPrivate ? eventWindow === window : !Self.privateWindows.contains(eventWindow)
     }
 
     // MARK: - Evening cleanup
@@ -206,7 +241,7 @@ final class AppModel {
     /// monitor sees the keys before the web view can swallow them.
     private func installTabSwitcherMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown]) { [weak self] event in
-            guard let self else { return event }
+            guard let self, self.owns(event) else { return event }
             // The same keyDown can reach a local monitor twice (seen with synthesized input);
             // a key already consumed must not act again.
             if event.type == .keyDown, event.timestamp == self.lastConsumedKeyTimestamp { return nil }

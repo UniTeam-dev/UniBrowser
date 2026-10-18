@@ -31,7 +31,14 @@ final class BrowserStore {
 
     init(environment: WebEnvironment) {
         self.environment = environment
-        if let snapshot = Self.loadSnapshot() {
+        if environment.isPrivate {
+            // A private window starts empty and is never saved.
+            let space = Space(name: "Приватное", colorHex: Palette.spaceColors[3])
+            spaces = [space]
+            activeSpaceID = space.id
+            tabs = [:]
+            archive = []
+        } else if let snapshot = Self.loadSnapshot() {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
             archive = snapshot.archive ?? []
@@ -50,7 +57,8 @@ final class BrowserStore {
         lastModified = (Self.loadSnapshot()?.modifiedAt) ?? .distantPast
         environment.store = self
         environment.extensions.store = self
-        Task { await environment.extensions.loadAll() }
+        // Extensions stay out of private windows, like Chrome's incognito by default.
+        if !environment.isPrivate { Task { await environment.extensions.loadAll() } }
     }
 
     // MARK: - Lookup
@@ -580,6 +588,7 @@ final class BrowserStore {
     }
 
     func saveNow() {
+        guard !environment.isPrivate else { return }
         // Always later than the last applied session, so a change made after
         // taking the iPhone's version wins even if the phone's clock is ahead.
         let now = max(Date.now, lastModified.addingTimeInterval(0.001))

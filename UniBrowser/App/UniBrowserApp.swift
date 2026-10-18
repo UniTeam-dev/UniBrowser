@@ -18,7 +18,16 @@ struct UniBrowserApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
-        .commands { BrowserCommands(model: model) }
+        .commands { BrowserCommands(main: model) }
+
+        // ⇧⌘N. Never restored at launch: nothing of a private window outlives it.
+        WindowGroup("Приватное окно", id: "private") {
+            PrivateWindow(main: model)
+                .frame(minWidth: 820, minHeight: 520)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
+        .restorationBehavior(.disabled)
 
         Window("iPhone", id: "iphone") {
             ViaMacWindow()
@@ -35,6 +44,29 @@ struct UniBrowserApp: App {
             }
             .padding(20)
             .frame(width: 360)
+        }
+    }
+}
+
+/// One private window: its own model, created once and torn down when the window closes.
+struct PrivateWindow: View {
+    let main: AppModel
+    @State private var model: AppModel?
+
+    var body: some View {
+        ZStack { // one container: a Group would pass onDisappear to Color.clear
+            if let model {
+                MainWindow()
+                    .environment(model)
+                    .environment(model.store)
+            } else {
+                Color.clear
+            }
+        }
+        .onAppear { if model == nil { model = main.makePrivateModel() } }
+        .onDisappear {
+            model?.tearDown()
+            model = nil
         }
     }
 }
