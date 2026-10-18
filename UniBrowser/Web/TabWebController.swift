@@ -48,6 +48,8 @@ extension TabWebController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.loginOffers = []
+        tab?.isReadable = false
+        tab?.reader = nil
         // The save prompt outlives the navigation: a login usually redirects, often to another
         // host (id.site.ru → site.ru, an SSO provider → the app). It stays until answered.
         tab?.hasLoginForm = false
@@ -60,6 +62,10 @@ extension TabWebController: WKNavigationDelegate {
         Task { [weak tab] in
             try? await Task.sleep(for: .seconds(1)) // let the page paint first
             tab?.captureThumbnail()
+        }
+        Task { [weak tab] in
+            let isReadable = await ReaderMode.isReadable(webView)
+            if tab?.webView === webView { tab?.isReadable = isReadable }
         }
     }
 }

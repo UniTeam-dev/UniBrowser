@@ -135,6 +135,7 @@ struct TabRow: View {
             Button("Открыть в Split View") { store.openSplit(with: tab.id) }
                 .disabled(store.activeSpace.allTabIDs.count < 2)
             Button("Новая группа с этой вкладкой") { store.newGroup(named: "Новая группа", with: [tab.id]) }
+            Button(tab.isMuted ? "Включить звук" : "Выключить звук") { tab.setMuted(!tab.isMuted) }
             Divider()
             Button("Усыпить") { tab.sleep() }.disabled(tab.isAsleep || isSelected)
             Button("В архив") { store.archiveTab(tab.id) }
@@ -154,10 +155,14 @@ struct TabRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .foregroundStyle(tab.isAsleep && !isSelected ? Color(hex: "#8E8E93") : .primary)
             }
-            if tab.isPlayingAudio {
-                Image(systemName: "speaker.wave.2")
-                    .foregroundStyle(Palette.accent)
-                    .accessibilityLabel("Играет звук")
+            if tab.isPlayingAudio || tab.isMuted {
+                Button { tab.setMuted(!tab.isMuted) } label: {
+                    Image(systemName: tab.isMuted ? "speaker.slash" : "speaker.wave.2")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(tab.isMuted ? Palette.secondaryText : Palette.accent)
+                .help(tab.isMuted ? "Включить звук" : "Выключить звук")
+                .accessibilityLabel(tab.isMuted ? "Включить звук" : "Выключить звук")
             }
             if isHovered {
                 Button { store.closeTab(tab.id) } label: { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }

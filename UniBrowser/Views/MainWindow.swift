@@ -36,6 +36,13 @@ struct MainWindow: View {
         .sheet(isPresented: Bindable(model).isPasswordsVisible) {
             PasswordsManagerView(store: model.passwords.fallback)
         }
+        .sheet(isPresented: Bindable(model).isImportVisible) {
+            ImportView()
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(1))
+            model.offerImportIfFirstRun()
+        }
         .overlay {
             if model.isTabMapVisible {
                 TabMapView()
@@ -80,6 +87,9 @@ struct AddressStrip: View {
                 iconButton("arrow.clockwise", label: "Обновить", enabled: tab?.url != nil) { tab?.webView?.reload() }
             }
             addressButton(tab?.url)
+            if let tab, tab.isReadable || tab.reader != nil {
+                iconButton(tab.reader == nil ? "doc.plaintext" : "doc.plaintext.fill", label: "Режим чтения") { toggleReader(tab) }
+            }
             if let url = tab?.url {
                 iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }
             }
@@ -131,6 +141,12 @@ struct AddressStrip: View {
                 Button("Скопировать адрес") { copy(url) }
             }
         }
+    }
+
+    private func toggleReader(_ tab: BrowserTab) {
+        guard tab.reader == nil else { return tab.reader = nil }
+        guard let webView = tab.webView else { return }
+        Task { tab.reader = await ReaderMode.article(from: webView) }
     }
 
     private func copy(_ url: URL) {
@@ -185,6 +201,12 @@ struct TabPane: View {
                 DeviceFrame(tab: tab) {
                     ZStack(alignment: .top) {
                         WebViewContainer(tab: tab, environment: store.environment)
+                        if let article = tab.reader {
+                            ReaderPage(article: article, onClose: { tab.reader = nil }) { url in
+                                tab.reader = nil
+                                tab.load(url)
+                            }
+                        }
                         if tab.isLoading {
                             ProgressView(value: tab.estimatedProgress)
                                 .progressViewStyle(.linear)

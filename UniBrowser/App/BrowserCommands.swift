@@ -16,6 +16,20 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("w")
         }
 
+        CommandGroup(replacing: .importExport) {
+            Button("Импорт…") { model.isImportVisible = true }
+        }
+
+        CommandGroup(replacing: .printItem) {
+            Button("Сохранить как PDF…") {
+                if let tab = model.store.selectedTab, let webView = tab.webView {
+                    Task { await PagePrinting.savePDF(webView, title: tab.displayTitle) }
+                }
+            }
+            Button("Печать…") { inspect(PagePrinting.print) }
+                .keyboardShortcut("p")
+        }
+
         CommandMenu("Вкладки") {
             Button("Поиск по вкладкам и командам") { model.openPalette(.search) }
                 .keyboardShortcut("k")

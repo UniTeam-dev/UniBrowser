@@ -33,6 +33,8 @@ targets:
         group: Shared
       # The link's protocol, transport and merge:
       - path: ../Shared/ViaMac
+      # Search engines and suggestions, reader mode (Readability.js):
+      - path: ../Shared/Convenience
     dependencies:
       - package: IrohLib
     settings:

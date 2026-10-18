@@ -23,6 +23,8 @@ final class AppModel {
     var isArchiveVisible = false
     var isExtensionsVisible = false
     var isPasswordsVisible = false
+    /// «Файл → Импорт…»; also offered once on the first launch.
+    var isImportVisible = false
     /// The page shown over the window by ⌥+click or ⌥↵; nil when Peek is closed.
     var peek: PeekPage?
     var isTabMapVisible = false
@@ -185,7 +187,22 @@ final class AppModel {
         closePeek()
     }
 
+    /// First launch (no saved session yet): offers to bring bookmarks and history over, once.
+    /// Called by the window a moment after it appears: a sheet asked for at launch gets dismissed.
+    func offerImportIfFirstRun() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "importOffered"), store.lastModified == .distantPast,
+              store.spaces.allSatisfy({ $0.allTabIDs.isEmpty }) else { return }
+        defaults.set(true, forKey: "importOffered")
+        isImportVisible = true
+    }
+
+    /// A new tab opens the start page from «Настройки» when one is set.
     func openPalette(_ mode: PaletteMode) {
+        if mode == .newTab, let url = HomePage.url {
+            store.newTab(url: url)
+            return
+        }
         paletteMode = mode
     }
 

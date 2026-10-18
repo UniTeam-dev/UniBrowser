@@ -23,6 +23,12 @@ final class MobileTab: Identifiable {
     var loginOffers: [SyncedCredential] = []
     /// A login the user just submitted that is not saved yet.
     var pendingSave: SyncedCredential?
+    /// Readability thinks the page is an article: «…» offers «Режим чтения».
+    var isReadable = false
+    /// The article shown in reader mode; nil shows the page.
+    var reader: ReaderArticle?
+    /// «Выключить звук» in «…»; re-applied after each page load.
+    var isMuted = false
 
     @ObservationIgnored private(set) var webView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
@@ -89,6 +95,30 @@ final class MobileTab: Identifiable {
         webView = nil
         controller = nil
         isLoading = false
+        isReadable = false
+        reader = nil
+    }
+
+    func setMuted(_ muted: Bool) {
+        isMuted = muted
+        applyMute()
+    }
+
+    /// Public API only (App Store): mutes the page's <audio>/<video> from script, now and as they start.
+    /// ponytail: main frame and in-document media only; Web Audio, detached `new Audio()` and
+    /// iframes keep playing. WebKit's page-level mute is private on iOS.
+    func applyMute() {
+        guard let webView else { return }
+        webView.evaluateJavaScript("""
+            (function (muted) {
+              window.__unibrowserMuted = muted;
+              document.querySelectorAll('audio, video').forEach(function (m) { m.muted = muted; });
+              if (!window.__unibrowserMuteHook) {
+                window.__unibrowserMuteHook = true;
+                document.addEventListener('play', function (e) { if (window.__unibrowserMuted && e.target) e.target.muted = true; }, true);
+              }
+            })(\(isMuted));
+            """, in: nil, in: ReaderMode.world, completionHandler: nil)
     }
 
     func fill(_ credential: SyncedCredential) {

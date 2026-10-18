@@ -40,9 +40,15 @@ final class MobileWebEnvironment {
         return configuration
     }
 
+    /// Search suggestions travel like the pages: in the via-Mac mode, through the Mac.
+    private(set) var suggestionSession = URLSession.shared
+
     /// Set once at launch, before any page loads.
     func apply(proxies: [ProxyConfiguration]) {
         dataStore.proxyConfigurations = proxies
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.proxyConfigurations = proxies
+        suggestionSession = URLSession(configuration: configuration)
     }
 
     /// Clears cookies, cache and storage of this mode only.
@@ -81,12 +87,19 @@ final class MobileTabController: NSObject {
 extension MobileTabController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.loginOffers = []
+        tab?.isReadable = false
+        tab?.reader = nil
         // A login usually redirects; the save prompt waits for the user unless the site changed.
         if tab?.pendingSave?.host != webView.url?.host() { tab?.pendingSave = nil }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         environment?.store?.scheduleSave()
+        if tab?.isMuted == true { tab?.applyMute() }
+        Task { [weak tab] in
+            let isReadable = await ReaderMode.isReadable(webView)
+            if tab?.webView === webView { tab?.isReadable = isReadable }
+        }
     }
 }
 

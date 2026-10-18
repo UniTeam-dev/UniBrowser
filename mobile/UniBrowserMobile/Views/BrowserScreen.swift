@@ -10,6 +10,12 @@ struct BrowserScreen: View {
     /// The address entry on screen: for the current tab, or a new one («+»).
     @State private var addressEntry: AddressTarget?
     @State private var notice: String?
+    @State private var showSettings = false
+    /// «Настройки «Через Mac»» chosen in Настройки: opened once that sheet is gone.
+    @State private var viaMacAfterSettings = false
+    /// «Сохранить как PDF»: the page, waiting for the Files save sheet.
+    @State private var pdf: PDFFile?
+    @State private var pdfName = ""
 
     var body: some View {
         let store = model.store
@@ -25,6 +31,12 @@ struct BrowserScreen: View {
                     WebViewContainer(tab: tab, environment: store.environment)
                         .id(tab.id)
                         .ignoresSafeArea(edges: .horizontal)
+                    if let article = tab.reader {
+                        ReaderPage(article: article, onClose: { tab.reader = nil }) { url in
+                            tab.reader = nil
+                            tab.load(url)
+                        }
+                    }
                     if tab.isLoading {
                         ProgressView(value: tab.estimatedProgress)
                             .progressViewStyle(.linear)
@@ -48,12 +60,16 @@ struct BrowserScreen: View {
                 mode: model.mode,
                 canSendToMac: model.relay.pairedMac != nil,
                 onAddress: { openAddress(newTab: false) },
-                onNewTab: { openAddress(newTab: true) },
+                onNewTab: {
+                    if let url = HomePage.url { store.newTab(url: url) } else { openAddress(newTab: true) }
+                },
                 onSwipeSpace: switchSpace,
                 onTabs: { showTabs = true },
                 onSwitchMode: { model.switchMode(to: $0) },
                 onViaMacSettings: { showViaMacSettings = true },
-                onSendToMac: sendToMac
+                onSendToMac: sendToMac,
+                onSettings: { showSettings = true },
+                onSavePDF: savePDF
             )
         }
         .sheet(isPresented: $showTabs) {
@@ -63,9 +79,32 @@ struct BrowserScreen: View {
             ViaMacSettingsView()
                 .environment(model)
         }
+        .sheet(isPresented: $showSettings, onDismiss: {
+            if viaMacAfterSettings { viaMacAfterSettings = false; showViaMacSettings = true }
+        }) {
+            SettingsSheet { viaMacAfterSettings = true }
+                .environment(model)
+        }
+        .fileExporter(isPresented: Binding(get: { pdf != nil }, set: { if !$0 { pdf = nil } }),
+                      document: pdf, contentType: .pdf, defaultFilename: pdfName) { result in
+            if case .success = result { show("PDF сохранён") }
+        }
         .fullScreenCover(item: $addressEntry) { target in
-            AddressEntry(store: store, initialText: target == .newTab ? "" : store.selectedTab?.url?.absoluteString ?? "") { input in
-                store.open(input: input, inNewTab: target == .newTab || store.selectedTab == nil)
+            AddressEntry(store: store, initialText: target == .newTab ? "" : store.selectedTab?.url?.absoluteString ?? "") { url in
+                if target == .currentTab, let tab = store.selectedTab { tab.load(url) } else { store.newTab(url: url) }
+            }
+        }
+    }
+
+    private func savePDF() {
+        guard let tab = model.store.selectedTab, let webView = tab.webView else { return }
+        Task {
+            do {
+                let data = try await webView.pdf()
+                pdfName = tab.displayTitle.components(separatedBy: CharacterSet(charactersIn: "/:\\")).joined(separator: "-")
+                pdf = PDFFile(data: data)
+            } catch {
+                show("Не удалось сохранить PDF")
             }
         }
     }
@@ -198,6 +237,8 @@ private struct BottomBar: View {
     let onSwitchMode: (BrowsingMode) -> Void
     let onViaMacSettings: () -> Void
     let onSendToMac: (URL) -> Void
+    let onSettings: () -> Void
+    let onSavePDF: () -> Void
     @AppStorage("appearance") var appearance = Appearance.system
 
     var body: some View {
@@ -272,11 +313,24 @@ private struct BottomBar: View {
                     if let url = tab?.url {
                         ShareLink(item: url)
                     }
+                    if let tab, tab.isReadable || tab.reader != nil {
+                        Button(tab.reader == nil ? "Режим чтения" : "Выйти из режима чтения", systemImage: "doc.plaintext") {
+                            if tab.reader != nil { tab.reader = nil; return }
+                            guard let webView = tab.webView else { return }
+                            Task { tab.reader = await ReaderMode.article(from: webView) }
+                        }
+                    }
+                    if let tab, tab.url != nil {
+                        Button("Сохранить как PDF", systemImage: "doc.richtext", action: onSavePDF)
+                        Button(tab.isMuted ? "Включить звук" : "Выключить звук",
+                               systemImage: tab.isMuted ? "speaker.wave.2" : "speaker.slash") { tab.setMuted(!tab.isMuted) }
+                    }
                     Picker("Оформление", systemImage: "circle.lefthalf.filled", selection: $appearance) {
                         ForEach(Appearance.allCases, id: \.self) { Text($0.title) }
                     }
                     .pickerStyle(.menu)
-                    Button("Настройки «Через Mac»", systemImage: "gearshape", action: onViaMacSettings)
+                    Button("Настройки «Через Mac»", systemImage: "laptopcomputer.and.iphone", action: onViaMacSettings)
+                    Button("Настройки", systemImage: "gearshape", action: onSettings)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -335,7 +389,10 @@ private struct StartPage: View {
 private struct AddressEntry: View {
     let store: MobileStore
     let initialText: String
-    let onSubmit: (String) -> Void
+    /// Private browsing: no search suggestions are fetched.
+    var isPrivate = false
+    let onSubmit: (URL) -> Void
+    @State private var suggestions: [String] = []
     @State private var text = ""
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
@@ -345,9 +402,19 @@ private struct AddressEntry: View {
             List {
                 let query = text.trimmingCharacters(in: .whitespaces)
                 if !query.isEmpty, let url = MobileStore.url(fromInput: query) {
-                    let isSearch = url.host() == "www.google.com" && url.path() == "/search"
+                    let isSearch = SearchEngine.current.query(in: url) != nil
                     suggestion(isSearch ? "Искать «\(query)»" : url.absoluteString,
                                icon: isSearch ? "magnifyingglass" : "globe") { submit() }
+                }
+                if !query.isEmpty, !suggestions.isEmpty {
+                    Section("Поиск в \(SearchEngine.current.title)") {
+                        ForEach(suggestions, id: \.self) { text in
+                            suggestion(text, icon: "magnifyingglass") {
+                                onSubmit(SearchEngine.current.searchURL(for: text))
+                                dismiss()
+                            }
+                        }
+                    }
                 }
                 let tabs = matchingTabs(query)
                 if !tabs.isEmpty {
@@ -390,6 +457,9 @@ private struct AddressEntry: View {
             .padding(.vertical, 8)
             .background(.bar)
         }
+        .task(id: text) {
+            suggestions = await SearchSuggestions.fetch(text, isPrivate: isPrivate, session: store.environment.suggestionSession)
+        }
         .onAppear {
             text = initialText
             focused = true
@@ -403,8 +473,8 @@ private struct AddressEntry: View {
     }
 
     private func submit() {
-        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        onSubmit(text)
+        guard let url = MobileStore.url(fromInput: text) else { return }
+        onSubmit(url)
         dismiss()
     }
 
