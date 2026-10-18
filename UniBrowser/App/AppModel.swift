@@ -26,6 +26,8 @@ final class AppModel {
     var isArchiveVisible = false
     var isExtensionsVisible = false
     var isPasswordsVisible = false
+    /// The ☆ / ⌘D bookmark editor in the address strip.
+    var isBookmarkPopoverVisible = false
     /// The page shown over the window by ⌥+click or ⌥↵; nil when Peek is closed.
     var peek: PeekPage?
     var isTabMapVisible = false

@@ -18,7 +18,22 @@ struct UniBrowserApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
-        .commands { BrowserCommands(model: model) }
+        .commands {
+            BrowserCommands(model: model)
+            LibraryCommands(model: model)
+        }
+
+        Window("История", id: "history") {
+            HistoryWindow()
+                .environment(model)
+                .environment(model.store)
+        }
+
+        Window("Закладки", id: "bookmarks") {
+            BookmarksWindow()
+                .environment(model)
+                .environment(model.store)
+        }
 
         Window("iPhone", id: "iphone") {
             ViaMacWindow()

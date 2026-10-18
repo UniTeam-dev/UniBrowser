@@ -81,6 +81,7 @@ struct AddressStrip: View {
             }
             addressButton(tab?.url)
             if let url = tab?.url {
+                BookmarkStar(url: url)
                 iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }
             }
             ExtensionBar(manager: store.environment.extensions)
