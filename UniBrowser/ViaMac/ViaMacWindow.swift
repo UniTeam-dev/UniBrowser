@@ -22,7 +22,7 @@ struct ViaMacWindow: View {
                         PairingCode(pairing: pairing)
                         Button("Отмена") { host.cancelPairing() }
                     } else {
-                        Button("Показать QR-код") { host.beginPairing() }
+                        Button("Показать QR-код") { Task { await host.beginPairing() } }
                     }
                 }
             }

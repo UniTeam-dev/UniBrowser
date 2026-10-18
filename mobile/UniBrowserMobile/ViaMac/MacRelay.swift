@@ -34,6 +34,8 @@ final class MacRelay {
         var id: String
         var relayURL: String?
         var name: String
+        /// The Mac's own IP addresses, from the QR and then from every ping answer.
+        var addresses: [String]?
     }
 
     /// Loopback port where ViaMacClient serves the tunnel as SOCKS5.
@@ -49,6 +51,9 @@ final class MacRelay {
     @ObservationIgnored private let client = ViaMacClient()
     @ObservationIgnored private var linkTask: Task<Void, Never>?
     @ObservationIgnored private var isActive = false
+    @ObservationIgnored private var isPairing = false
+    /// Set when the keep-alive gave up on a link that still looked open.
+    @ObservationIgnored private var macStoppedAnswering = false
     @ObservationIgnored private weak var store: MobileStore?
     @ObservationIgnored private weak var passwords: PhonePasswords?
     @ObservationIgnored private var channel: SyncChannel?
@@ -101,23 +106,29 @@ final class MacRelay {
     /// Handles a `unibrowser://pair?…` link from the Mac's QR code (Camera or pasted).
     func pair(using link: String) async {
         lastError = nil
+        // The link opened from the QR also makes the app active; that must not start a
+        // second link to the old Mac while this one pairs.
+        isPairing = true
         do {
             let payload = try PairingPayload(link: link)
             linkTask?.cancel()
             linkTask = nil
             await client.disconnect()
+            linkClosed()
             status = .connecting
-            let name = try await client.pair(with: payload, deviceName: UIDevice.current.name)
+            let response = try await client.pair(with: payload, deviceName: UIDevice.current.name)
             if pairedMac?.id != payload.macID { setBase(nil) }
-            pairedMac = PairedMac(id: payload.macID, relayURL: payload.relayURL, name: name)
+            pairedMac = PairedMac(id: payload.macID, relayURL: payload.relayURL, name: response.macName ?? payload.macName,
+                                  addresses: response.addresses ?? payload.addresses)
             savePairedMac()
-            // Reuses the connection pairing just made, starts the mirror and keeps the link up.
             isActive = true
-            startLink()
         } catch {
             lastError = error.localizedDescription
             status = pairedMac == nil ? .notPaired : .unreachable(reason: error.localizedDescription)
         }
+        isPairing = false
+        // Reuses the connection pairing just made, starts the mirror and keeps the link up.
+        startLink()
     }
 
     func unpair() async {
@@ -182,28 +193,70 @@ final class MacRelay {
     }
 
     private func startLink() {
-        guard linkTask == nil, pairedMac != nil, isActive else { return }
+        guard linkTask == nil, pairedMac != nil, isActive, !isPairing else { return }
         linkTask = Task { [weak self] in
             var delay: Double = 1
             while !Task.isCancelled, let self, self.isActive, let mac = self.pairedMac {
                 self.status = .connecting
                 do {
-                    _ = try await self.client.connect(macID: mac.id, relayURL: mac.relayURL)
+                    _ = try await self.client.connect(macID: mac.id, relayURL: mac.relayURL, addresses: mac.addresses ?? [])
+                    // «Connected» only once the Mac answers on this link: a phone it doesn't know, or a
+                    // link that carries nothing yet, stays «connecting». A new link over a throttled
+                    // relay can take a minute to carry its first stream.
+                    try await self.ping(timeout: 60)
+                    if Task.isCancelled { return }
                     delay = 1
                     await self.linkEstablished()
-                    let reason = await self.client.waitUntilClosed()
+                    self.macStoppedAnswering = false
+                    let keepAlive = self.keepAlive()
+                    var reason = await self.client.waitUntilClosed()
+                    keepAlive.cancel()
                     self.linkClosed()
                     if Task.isCancelled { return }
+                    if self.macStoppedAnswering { reason = "Mac не отвечает" }
                     self.status = .unreachable(reason: "Связь с Mac прервалась (\(reason)).")
                 } catch ViaMacError.outdatedMac {
                     if Task.isCancelled { return }
                     self.status = .unreachable(reason: ViaMacError.outdatedMac.localizedDescription)
+                } catch ViaMacError.rejected(let reason) {
+                    if Task.isCancelled { return }
+                    self.status = .unreachable(reason: reason)
                 } catch {
                     if Task.isCancelled { return }
                     self.status = .unreachable(reason: "Mac недоступен: \(error.localizedDescription)")
                 }
                 try? await Task.sleep(for: .seconds(delay))
                 delay = min(delay * 2, 30)
+            }
+        }
+    }
+
+    /// One round trip to the Mac; keeps the Mac's addresses it reports for the next connect.
+    private func ping(timeout: Double) async throws {
+        let response = try await client.ping(timeout: timeout)
+        if let addresses = response.addresses, var mac = pairedMac, mac.addresses != addresses {
+            mac.addresses = addresses
+            pairedMac = mac
+            savePairedMac()
+        }
+    }
+
+    /// A link can stay open while nothing gets through (the Mac app hung, a relay
+    /// that stopped forwarding). Pings every 10 s; one unanswered for 10 s closes
+    /// the link, and the loop in `startLink` connects again.
+    private func keepAlive() -> Task<Void, Never> {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                guard let self, !Task.isCancelled else { return }
+                do {
+                    try await self.ping(timeout: 10)
+                } catch {
+                    if Task.isCancelled { return }
+                    self.macStoppedAnswering = true
+                    await self.client.disconnect()
+                    return
+                }
             }
         }
     }
