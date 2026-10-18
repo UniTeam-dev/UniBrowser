@@ -49,6 +49,11 @@ actor ViaMacEngine {
         endpoint = nil
     }
 
+    /// This Mac's IP addresses as the phones should dial them, alongside the relay.
+    func directAddresses() -> [String] {
+        endpoint?.addr().directAddresses() ?? []
+    }
+
     func disconnect(deviceID: String) {
         for connection in connections[deviceID] ?? [] {
             try? connection.close(errorCode: 2, reason: Data("unpaired".utf8))
@@ -115,7 +120,8 @@ actor ViaMacEngine {
         }
 
         if !(await host.isPaired(deviceID)) {
-            guard await Self.pair(connection, deviceID: deviceID, host: host) else {
+            guard await pair(connection, deviceID: deviceID) else {
+                try? await Task.sleep(for: .seconds(1)) // lets the reply with the reason arrive before the close
                 try? connection.close(errorCode: 1, reason: Data("not paired".utf8))
                 return
             }
@@ -132,7 +138,7 @@ actor ViaMacEngine {
     }
 
     /// An unknown phone gets one chance: its first stream must carry the QR's token.
-    private static func pair(_ connection: Connection, deviceID: String, host: ViaMacHost) async -> Bool {
+    private nonisolated func pair(_ connection: Connection, deviceID: String) async -> Bool {
         guard let stream = try? await withTimeout(30, { try await connection.acceptBi() }) else { return false }
         let reader = StreamReader(stream.recv())
         guard (try? await reader.readByte()) == StreamKind.control.rawValue,
@@ -146,7 +152,8 @@ actor ViaMacEngine {
             await ControlChannel.reply(.failure("Код устарел или уже использован. Покажите на Mac новый."), on: stream.send())
             return false
         }
-        await ControlChannel.reply(ControlResponse(ok: true, macName: await host.macName), on: stream.send())
+        await ControlChannel.reply(ControlResponse(ok: true, macName: await host.macName, addresses: await directAddresses()),
+                                   on: stream.send())
         return true
     }
 
@@ -160,7 +167,7 @@ actor ViaMacEngine {
             let response: ControlResponse
             if let body = try? await reader.readToEnd(limit: ViaMacProtocol.maxControlMessage),
                let request = try? JSONDecoder().decode(ControlRequest.self, from: body) {
-                response = await Self.answer(request, host: host)
+                response = await answer(request)
             } else {
                 response = .failure("Непонятный запрос.")
             }
@@ -189,11 +196,11 @@ actor ViaMacEngine {
         }
     }
 
-    private static func answer(_ request: ControlRequest, host: ViaMacHost) async -> ControlResponse {
+    private func answer(_ request: ControlRequest) async -> ControlResponse {
         switch request {
-        case .pair:
-            // Already paired: the phone is just re-confirming.
-            return ControlResponse(ok: true, macName: await host.macName)
+        case .pair, .ping:
+            // Already paired: the phone is re-confirming or checking the link.
+            return ControlResponse(ok: true, macName: await host.macName, addresses: directAddresses())
         case .open(let url):
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
                 return .failure("Можно открыть только веб-страницу.")

@@ -62,6 +62,9 @@ struct PairingPayload: Codable, Equatable, Sendable {
     var macID: String
     /// The Mac's home relay, a hint that speeds up the first connection.
     var relayURL: String?
+    /// The Mac's own IP addresses (`ip:port`), dialled alongside the relay: a phone
+    /// that can reach one connects without waiting on the relay.
+    var addresses: [String]?
     var macName: String
     /// One-time secret; the Mac accepts it once, before `expires`.
     var token: String
@@ -76,9 +79,10 @@ struct PairingPayload: Codable, Equatable, Sendable {
         return "\(Self.scheme)://pair?d=\(json.base64URLEncoded)"
     }
 
-    init(macID: String, relayURL: String?, macName: String, token: String, expires: Date) {
+    init(macID: String, relayURL: String?, addresses: [String]?, macName: String, token: String, expires: Date) {
         self.macID = macID
         self.relayURL = relayURL
+        self.addresses = addresses
         self.macName = macName
         self.token = token
         self.expires = expires
@@ -111,12 +115,17 @@ enum ControlRequest: Codable, Sendable {
     case pair(token: String, deviceName: String)
     /// Open a page in a new tab on the Mac and bring the Mac app forward.
     case open(url: URL)
+    /// A round trip that proves the link works: sent right after connecting and
+    /// then every few seconds while connected.
+    case ping
 }
 
 struct ControlResponse: Codable, Sendable {
     var ok: Bool
     var error: String?
     var macName: String?
+    /// The Mac's current IP addresses, in answers to `pair` and `ping`.
+    var addresses: [String]?
 
     static func failure(_ message: String) -> ControlResponse {
         ControlResponse(ok: false, error: message)

@@ -121,11 +121,12 @@ final class ViaMacHost {
     // MARK: - Pairing
 
     /// Shows a fresh QR code; it works once and for ten minutes.
-    func beginPairing() {
-        guard let endpointID else { return }
+    func beginPairing() async {
+        guard let endpointID, let engine else { return }
         pairing = PairingPayload(
             macID: endpointID,
             relayURL: relayURL,
+            addresses: await engine.directAddresses(),
             macName: macName,
             token: PairingPayload.newToken(),
             expires: .now.addingTimeInterval(ViaMacProtocol.pairingLifetime)

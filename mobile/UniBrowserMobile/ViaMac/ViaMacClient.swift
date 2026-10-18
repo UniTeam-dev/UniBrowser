@@ -16,6 +16,8 @@ actor ViaMacClient {
     private var endpoint: Endpoint?
     private var connection: Connection?
     private var listener: NWListener?
+    /// The connect in progress; the next one waits for it.
+    private var lastConnect: Task<Connection, Error>?
 
     // MARK: - Endpoint and loopback port
 
@@ -97,11 +99,29 @@ actor ViaMacClient {
 
     // MARK: - Connection to the Mac
 
-    /// Connects to the Mac; reuses a live connection.
-    func connect(macID: String, relayURL: String?) async throws -> Connection {
-        if let connection, connection.closeReason() == nil { return connection }
+    /// Connects to the Mac; reuses a live connection to it. Calls run one after
+    /// another: pairing from the QR link while the app becomes active would
+    /// otherwise bind two endpoints with the same identity and race to set
+    /// `connection`.
+    func connect(macID: String, relayURL: String?, addresses: [String]) async throws -> Connection {
+        let previous = lastConnect
+        let attempt = Task {
+            _ = await previous?.result
+            return try await self.connectNow(macID: macID, relayURL: relayURL, addresses: addresses)
+        }
+        lastConnect = attempt
+        return try await attempt.value
+    }
+
+    private func connectNow(macID: String, relayURL: String?, addresses: [String]) async throws -> Connection {
+        if let connection, connection.closeReason() == nil {
+            if connection.remoteId().description == macID { return connection }
+            disconnect()
+        }
         let endpoint = try await boundEndpoint()
-        let address = EndpointAddr(id: try EndpointId.fromString(s: macID), relayUrl: relayURL, addresses: [])
+        // The Mac's own addresses go with the relay: where one is reachable (same Wi-Fi, an open
+        // NAT) the link doesn't depend on the relay, which some networks throttle to a trickle.
+        let address = EndpointAddr(id: try EndpointId.fromString(s: macID), relayUrl: relayURL, addresses: addresses)
         let connection: Connection
         do {
             connection = try await withTimeout(20) {
@@ -122,9 +142,9 @@ actor ViaMacClient {
     }
 
     /// First contact: proves to the Mac that this phone scanned its QR code.
-    func pair(with payload: PairingPayload, deviceName: String) async throws -> String {
+    func pair(with payload: PairingPayload, deviceName: String) async throws -> ControlResponse {
         guard payload.expires > .now else { throw ViaMacError.pairingExpired }
-        let connection = try await connect(macID: payload.macID, relayURL: payload.relayURL)
+        let connection = try await connect(macID: payload.macID, relayURL: payload.relayURL, addresses: payload.addresses ?? [])
         let response = try await withTimeout(20) {
             try await ControlChannel.request(.pair(token: payload.token, deviceName: deviceName), over: connection)
         }
@@ -132,7 +152,7 @@ actor ViaMacClient {
             disconnect()
             throw ViaMacError.rejected(response.error ?? "Mac отклонил сопряжение.")
         }
-        return response.macName ?? payload.macName
+        return response
     }
 
     /// Opens the live mirror stream on the current connection.
@@ -147,6 +167,18 @@ actor ViaMacClient {
             try await ControlChannel.request(request, over: connection)
         }
         guard response.ok else { throw ViaMacError.rejected(response.error ?? "Mac не выполнил запрос.") }
+        return response
+    }
+
+    /// A round trip to the Mac over a fresh stream. An older Mac answers `ping` as an
+    /// unknown request, which still proves the link; a Mac that doesn't know this
+    /// phone answers with the reason and hangs up.
+    func ping(timeout: Double) async throws -> ControlResponse {
+        guard let connection, connection.closeReason() == nil else { throw ViaMacError.notConnected }
+        let response = try await withTimeout(timeout) { try await ControlChannel.request(.ping, over: connection) }
+        if !response.ok, (try? await withTimeout(2, { await connection.closed() })) != nil {
+            throw ViaMacError.rejected(response.error ?? "Mac отклонил подключение.")
+        }
         return response
     }
 
