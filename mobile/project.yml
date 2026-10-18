@@ -35,6 +35,8 @@ targets:
       - path: ../Shared/ViaMac
       # History and bookmarks stores (docs/library-architecture.md):
       - path: ../Shared/Library
+      # Downloads and page zoom:
+      - path: ../Shared/Basics
     dependencies:
       - package: IrohLib
     settings:

@@ -83,7 +83,7 @@ struct DeviceFrame<Content: View>: View {
                 Divider()
             }
             GeometryReader { geometry in
-                let scale = mode.isOn ? mode.scale(in: geometry.size) : 1
+                let scale = mode.isOn ? mode.scale(in: geometry.size) : tab.pageZoom // the site's zoom when off
                 // `content` keeps one place in the tree either way, so the web view is not re-hosted.
                 content
                     .frame(

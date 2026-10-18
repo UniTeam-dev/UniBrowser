@@ -34,6 +34,10 @@ final class BrowserTab: Identifiable {
     private(set) var devTools: DevToolsSession?
     /// «Режим устройства» stays on with the panel closed.
     let deviceMode = DeviceMode()
+    /// ⌘F bar state.
+    let find = FindInPage()
+    /// The site's zoom (⌘+ / ⌘−), shown in the address strip when not 1.
+    var pageZoom = 1.0
 
     @ObservationIgnored private(set) var webView: WKWebView?
     /// The web view's own superview. WebKit docks its inspector beside the web view in

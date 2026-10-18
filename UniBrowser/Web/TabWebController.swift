@@ -31,6 +31,8 @@ extension TabWebController: WKNavigationDelegate {
             environment?.store?.newTab(url: url, select: false)
             return (.cancel, preferences)
         }
+        // <a download>, blob: and data: links included.
+        if action.shouldPerformDownload { return (.download, preferences) }
         // «Рендеринг» → «Отключить JavaScript»; injected scripts (devtools.js) still run.
         if tab?.devTools?.rendering.isJavaScriptDisabled == true { preferences.allowsContentJavaScript = false }
         // DevTools «Отключить кэш»: a reload becomes reloadFromOrigin.
@@ -43,11 +45,20 @@ extension TabWebController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         tab?.devTools?.network.navigationResponse(response) // DevTools «Сеть»: documents
-        return response.canShowMIMEType ? .allow : .cancel // WebKit's default
+        return Downloads.policy(for: response)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        Downloads.shared.track(download)
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        Downloads.shared.track(download)
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.loginOffers = []
+        tab?.applyZoom(PageZoom.level(for: webView.url?.host()))
         // The save prompt outlives the navigation: a login usually redirects, often to another
         // host (id.site.ru → site.ru, an SSO provider → the app). It stays until answered.
         tab?.hasLoginForm = false

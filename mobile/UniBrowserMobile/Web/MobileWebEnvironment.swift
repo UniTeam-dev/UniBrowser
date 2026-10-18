@@ -79,8 +79,25 @@ final class MobileTabController: NSObject {
 }
 
 extension MobileTabController: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
+        action.shouldPerformDownload ? .download : .allow // <a download>, blob: and data: links
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        Downloads.policy(for: response)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        Downloads.shared.track(download)
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        Downloads.shared.track(download)
+    }
+
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.loginOffers = []
+        tab?.applyZoom(PageZoom.level(for: webView.url?.host()))
         // A login usually redirects; the save prompt waits for the user unless the site changed.
         if tab?.pendingSave?.host != webView.url?.host() { tab?.pendingSave = nil }
     }
@@ -88,6 +105,7 @@ extension MobileTabController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         environment?.store?.scheduleSave()
         if let url = webView.url { environment?.store?.history?.record(url: url, title: webView.title ?? "") }
+        if let tab, tab.pageZoom != 1 { tab.applyZoom(tab.pageZoom) } // the style set at commit may predate <html>
     }
 }
 

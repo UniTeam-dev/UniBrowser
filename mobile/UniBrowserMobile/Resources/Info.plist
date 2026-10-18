@@ -34,6 +34,11 @@
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
 	</dict>
+	<!-- Downloads land in Documents, which «Файлы» shows under «На iPhone → UniBrowser». -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>UniBrowser подключается к вашему Mac в режиме «Через Mac».</string>
 	<!-- Only standard encryption (HTTPS, QUIC/TLS in iroh, CryptoKit): exempt from export filings. -->

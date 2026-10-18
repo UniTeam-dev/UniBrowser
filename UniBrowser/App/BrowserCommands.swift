@@ -77,12 +77,54 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("u", modifiers: [.command, .option])
         }
 
+        CommandGroup(after: .textEditing) {
+            Divider()
+            Button("Найти на странице…") { model.store.selectedTab?.find.show() }
+                .keyboardShortcut("f")
+            Button("Найти далее") { findStep(backwards: false) }
+                .keyboardShortcut("g")
+            Button("Найти ранее") { findStep(backwards: true) }
+                .keyboardShortcut("g", modifiers: [.command, .shift])
+        }
+
+        CommandGroup(after: .toolbar) {
+            // ⌘= is the key under «+»; the menu shows it as ⌘=.
+            Button("Увеличить") { model.store.zoomSelectedTab(up: true) }
+                .keyboardShortcut("=")
+            Button("Уменьшить") { model.store.zoomSelectedTab(up: false) }
+                .keyboardShortcut("-")
+            Button("Фактический размер") { model.store.zoomSelectedTab(up: nil) }
+                .keyboardShortcut("0")
+            Divider()
+        }
+
+        CommandMenu("История") {
+            // — Недавно закрытые (part D). History items (part B) go in their own section. —
+            Button("Открыть закрытую вкладку") {
+                if let last = model.store.lastClosed { model.store.reopenClosed(last.id) }
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+            Menu("Недавно закрытые") {
+                ForEach(model.store.recentlyClosedMenu) { item in
+                    Button(item.title.isEmpty ? (item.url?.host() ?? "Вкладка") : item.title) {
+                        model.store.reopenClosed(item.id)
+                    }
+                }
+            }
+        }
+
         CommandGroup(after: .sidebar) {
             Button(model.isSidebarCompact ? "Полная панель вкладок" : "Компактная панель вкладок") {
                 withAnimation(.snappy) { model.isSidebarCompact.toggle() }
             }
             .keyboardShortcut("s", modifiers: [.command, .control])
         }
+    }
+
+    /// ⌘G / ⇧⌘G: the next match of the bar's text, or the bar itself when it is empty.
+    private func findStep(backwards: Bool) {
+        guard let tab = model.store.selectedTab else { return }
+        Task { await tab.find.step(tab.webView, backwards: backwards) }
     }
 
     private func inspect(_ action: (WKWebView) -> Void) {

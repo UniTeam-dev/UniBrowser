@@ -68,6 +68,7 @@ struct SidebarView: View {
                 startRenamingSpace()
             }
             iconButton("archivebox", label: "Архив") { model.isArchiveVisible = true }
+            DownloadsButton()
         }
     }
 
@@ -154,7 +155,7 @@ struct SidebarView: View {
                     .accessibilityLabel("iPhone подключён")
             }
             Spacer()
-            iconButton("arrow.down.to.line", label: "Загрузки") {}
+            DownloadsButton()
         }
         .padding(.top, 10)
         .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1) }
