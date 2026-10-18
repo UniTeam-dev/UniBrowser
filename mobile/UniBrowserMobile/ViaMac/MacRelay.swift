@@ -4,7 +4,7 @@ import Observation
 import UIKit
 
 /// The phone's side of the link to the Mac: the paired Mac, the connection,
-/// which domains go through it, and the live mirror of the Mac's tabs and logins.
+/// and the live mirror of the Mac's tabs and logins. Every page of the via-Mac mode goes through it.
 ///
 /// Proxy route: WKWebView → SOCKS5 on 127.0.0.1:47801 → ViaMacClient → iroh
 /// (direct or via relay) → SOCKS server in UniBrowser on the Mac → the Mac's
@@ -46,15 +46,6 @@ final class MacRelay {
     private(set) var isSyncing = false
     private(set) var lastSynced: Date?
 
-    /// Domains sent through the Mac, e.g. "nas.local". Everything else goes direct.
-    var workDomains: [String] {
-        didSet {
-            UserDefaults.standard.set(workDomains, forKey: Keys.domains)
-            onProxiesChange?(proxyConfigurations())
-        }
-    }
-
-    @ObservationIgnored var onProxiesChange: (@MainActor ([ProxyConfiguration]) -> Void)?
     @ObservationIgnored private let client = ViaMacClient()
     @ObservationIgnored private var linkTask: Task<Void, Never>?
     @ObservationIgnored private var isActive = false
@@ -66,12 +57,10 @@ final class MacRelay {
     @ObservationIgnored private var lastMirrored: SessionSnapshot?
 
     private enum Keys {
-        static let domains = "viaMac.workDomains"
         static let mac = "viaMac.pairedMac"
     }
 
     init() {
-        workDomains = UserDefaults.standard.stringArray(forKey: Keys.domains) ?? []
         pairedMac = UserDefaults.standard.data(forKey: Keys.mac)
             .flatMap { try? JSONDecoder().decode(PairedMac.self, from: $0) }
         base = Self.loadBase()
@@ -100,30 +89,13 @@ final class MacRelay {
 
     // MARK: - Proxy
 
-    /// One SOCKS5 hop to the tunnel for the listed domains. Failover is off on
-    /// purpose: with the Mac unreachable such a page fails instead of quietly
+    /// One SOCKS5 hop to the tunnel for every load of the via-Mac mode. Failover is
+    /// off on purpose: with the Mac unreachable a page fails instead of quietly
     /// loading from the phone's own network.
-    func proxyConfigurations() -> [ProxyConfiguration] {
-        guard !workDomains.isEmpty else { return [] }
-        var proxy = ProxyConfiguration(socksv5Proxy: .hostPort(host: "127.0.0.1", port: Self.localProxyPort))
-        proxy.matchDomains = workDomains
+    static func proxyConfigurations() -> [ProxyConfiguration] {
+        var proxy = ProxyConfiguration(socksv5Proxy: .hostPort(host: "127.0.0.1", port: localProxyPort))
         proxy.allowFailover = false
         return [proxy]
-    }
-
-    func addDomain(_ raw: String) {
-        let domain = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "https://", with: "")
-            .replacingOccurrences(of: "http://", with: "")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/*."))
-        guard !domain.isEmpty, !workDomains.contains(domain) else { return }
-        workDomains.append(domain)
-    }
-
-    func removeDomains(at offsets: IndexSet) {
-        workDomains.remove(atOffsets: offsets)
     }
 
     // MARK: - Pairing

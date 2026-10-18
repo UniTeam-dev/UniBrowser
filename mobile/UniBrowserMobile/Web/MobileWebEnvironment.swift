@@ -3,7 +3,7 @@ import Network
 import WebKit
 
 /// Things every tab of one mode shares: its cookies and site data, the saved
-/// logins and, in the via-Mac mode, the proxy that sends the listed domains through the Mac.
+/// logins and, in the via-Mac mode, the proxy that sends every page through the Mac.
 @MainActor
 final class MobileWebEnvironment {
     weak var store: MobileStore?
@@ -40,7 +40,7 @@ final class MobileWebEnvironment {
         return configuration
     }
 
-    /// Applies to loads that start after the call; open pages keep their old route until reloaded.
+    /// Set once at launch, before any page loads.
     func apply(proxies: [ProxyConfiguration]) {
         dataStore.proxyConfigurations = proxies
     }

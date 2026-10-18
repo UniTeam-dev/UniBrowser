@@ -277,8 +277,13 @@ final class MobileStore {
         if let url = URL(string: input), let scheme = url.scheme, ["http", "https", "file", "about"].contains(scheme) {
             return url
         }
-        if !input.contains(" "), input.contains("."), let url = URL(string: "https://\(input)") {
-            return url
+        if !input.contains(" ") {
+            // localhost, *.local and IPv4 addresses are home devices (NAS, router): plain http, port optional.
+            let host = input.split(whereSeparator: { "/:?#".contains($0) }).first.map(String.init) ?? ""
+            let isLocal = host == "localhost" || host.hasSuffix(".local")
+                || (host.split(separator: ".").count == 4 && host.allSatisfy { $0.isNumber || $0 == "." })
+            if isLocal, let url = URL(string: "http://\(input)") { return url }
+            if input.contains("."), let url = URL(string: "https://\(input)") { return url }
         }
         var components = URLComponents(string: "https://www.google.com/search")!
         components.queryItems = [URLQueryItem(name: "q", value: input)]

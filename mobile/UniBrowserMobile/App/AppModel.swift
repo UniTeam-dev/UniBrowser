@@ -27,10 +27,7 @@ final class AppModel {
         self.relay = relay
 
         let viaMacEnvironment = MobileWebEnvironment(mode: .viaMac, passwords: passwords)
-        viaMacEnvironment.apply(proxies: relay.proxyConfigurations())
-        relay.onProxiesChange = { [weak viaMacEnvironment] proxies in
-            viaMacEnvironment?.apply(proxies: proxies)
-        }
+        viaMacEnvironment.apply(proxies: MacRelay.proxyConfigurations())
         viaMac = MobileStore(mode: .viaMac, environment: viaMacEnvironment)
         relay.attach(store: viaMac, passwords: passwords)
     }
