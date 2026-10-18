@@ -4,7 +4,7 @@ import Observation
 import UIKit
 
 /// The phone's side of the link to the Mac: the paired Mac, the connection,
-/// and the live mirror of the Mac's tabs and logins. Every page of the via-Mac mode goes through it.
+/// and the live mirror of the Mac's tabs, logins, bookmarks and history. Every page of the via-Mac mode goes through it.
 ///
 /// Proxy route: WKWebView → SOCKS5 on 127.0.0.1:47801 → ViaMacClient → iroh
 /// (direct or via relay) → SOCKS server in UniBrowser on the Mac → the Mac's
@@ -55,6 +55,7 @@ final class MacRelay {
     /// The last session both sides agreed on; the base of the next merge.
     @ObservationIgnored private var base: SessionSnapshot?
     @ObservationIgnored private var lastMirrored: SessionSnapshot?
+    @ObservationIgnored private var historyPump: Task<Void, Never>?
 
     private enum Keys {
         static let mac = "viaMac.pairedMac"
@@ -80,6 +81,10 @@ final class MacRelay {
         self.passwords = passwords
         store.onLocalChange = { [weak self] snapshot in self?.mirror(snapshot) }
         passwords.onSave = { [weak self] credential in self?.send(.savePassword(credential)) }
+        store.bookmarks.onLocalChange = { [weak self, weak store] in
+            guard let store else { return }
+            self?.send(.bookmarks(store.bookmarks.all))
+        }
     }
 
     var isConnected: Bool {
@@ -178,6 +183,9 @@ final class MacRelay {
                     self.linkClosed()
                     if Task.isCancelled { return }
                     self.status = .unreachable(reason: "Связь с Mac прервалась (\(reason)).")
+                } catch ViaMacError.outdatedMac {
+                    if Task.isCancelled { return }
+                    self.status = .unreachable(reason: ViaMacError.outdatedMac.localizedDescription)
                 } catch {
                     if Task.isCancelled { return }
                     self.status = .unreachable(reason: "Mac недоступен: \(error.localizedDescription)")
@@ -212,6 +220,8 @@ final class MacRelay {
     private func linkClosed() {
         channel = nil
         isSyncing = false
+        historyPump?.cancel()
+        historyPump = nil
     }
 
     // MARK: - Mirror
@@ -221,8 +231,10 @@ final class MacRelay {
         do {
             let channel = try await client.openSync()
             self.channel = channel
-            try await channel.write(.hello(session: store.currentSnapshot(), base: base, savedPasswords: passwords.pending))
+            try await channel.write(.hello(session: store.currentSnapshot(), base: base, savedPasswords: passwords.pending,
+                                           bookmarks: store.bookmarks.all))
             isSyncing = true
+            pumpHistory(channel)
             Task { [weak self] in
                 var isFirst = true
                 while let message = try? await channel.next() {
@@ -256,8 +268,42 @@ final class MacRelay {
             lastSynced = .now
         case .passwords(let logins):
             passwords?.replaceFromMac(logins)
+        case .bookmarks(let remote):
+            guard let bookmarks = store?.bookmarks else { return }
+            bookmarks.merge(remote)
+            // The Mac is missing something the phone has: it gets the phone's list back.
+            if Set(bookmarks.all) != Set(remote) { send(.bookmarks(bookmarks.all)) }
+        case .history(let visits):
+            store?.history?.merge(visits)
         case .hello, .savePassword, .sessionKeepingImages:
             break
+        }
+    }
+
+    /// Every 5 s while syncing, the visits made since the last batch the Mac
+    /// got (the cursor per Mac survives relaunches).
+    private func pumpHistory(_ channel: SyncChannel) {
+        historyPump?.cancel()
+        historyPump = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.channel === channel, let mac = self.pairedMac, let history = self.store?.history else { return }
+                let key = "viaMac.historySent." + mac.id
+                let cursor = UserDefaults.standard.object(forKey: key) as? Date ?? .distantPast
+                // Batches stay small; the first sync of a long history takes a few rounds.
+                let batch = Array(history.visits(since: cursor).prefix(500))
+                if let last = batch.last {
+                    do {
+                        // Only the phone's own visits: the ones from the Mac are already there.
+                        let own = batch.filter { $0.deviceID == history.deviceID }
+                        if !own.isEmpty { try await channel.write(.history(own)) }
+                        UserDefaults.standard.set(last.visitedAt, forKey: key)
+                        self.lastSynced = .now
+                    } catch {
+                        return
+                    }
+                }
+                try? await Task.sleep(for: .seconds(5))
+            }
         }
     }
 

@@ -67,8 +67,20 @@ actor ViaMacClient {
         if let connection, connection.closeReason() == nil { return connection }
         let endpoint = try await boundEndpoint()
         let address = EndpointAddr(id: try EndpointId.fromString(s: macID), relayUrl: relayURL, addresses: [])
-        let connection = try await withTimeout(20) {
-            try await endpoint.connect(addr: address, alpn: ViaMacProtocol.alpn)
+        let connection: Connection
+        do {
+            connection = try await withTimeout(20) {
+                try await endpoint.connect(addr: address, alpn: ViaMacProtocol.alpn)
+            }
+        } catch ViaMacError.timeout {
+            throw ViaMacError.timeout
+        } catch {
+            // A quick refusal may mean the Mac runs an older UniBrowser: it still speaks the old protocol.
+            if let old = try? await withTimeout(10, { try await endpoint.connect(addr: address, alpn: ViaMacProtocol.legacyAlpn) }) {
+                try? old.close(errorCode: 0, reason: Data("outdated".utf8))
+                throw ViaMacError.outdatedMac
+            }
+            throw error
         }
         self.connection = connection
         return connection

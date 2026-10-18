@@ -33,6 +33,8 @@ targets:
         group: Shared
       # The link's protocol, transport and merge:
       - path: ../Shared/ViaMac
+      # History and bookmarks stores (docs/library-architecture.md):
+      - path: ../Shared/Library
     dependencies:
       - package: IrohLib
     settings:

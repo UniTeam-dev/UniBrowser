@@ -57,6 +57,8 @@ final class AppModel {
     func eraseViaMacData() async {
         viaMac.removeAllTabs()
         passwords.eraseAll()
+        // Local only: history deletions don't sync, so the Mac keeps its copy.
+        viaMac.history?.deleteAll()
         await viaMac.environment.eraseWebsiteData()
     }
 }

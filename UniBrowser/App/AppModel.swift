@@ -14,6 +14,9 @@ final class AppModel {
     let store: BrowserStore
     /// The link to paired iPhones: their proxy and the live mirror of this session.
     let viaMac = ViaMacHost()
+    /// Visits and bookmarks of this Mac, shared with its via-Mac iPhones (docs/library-architecture.md).
+    let history = HistoryStore(fileURL: LibraryFiles.url("history.sqlite"), deviceID: BrowserStore.deviceID)
+    let bookmarks = BookmarkStore(fileURL: LibraryFiles.url("bookmarks.json"))
 
     var paletteMode: PaletteMode?
     /// The sidebar as a 56 pt column of icons instead of the 290 pt list; kept across launches.
@@ -47,7 +50,9 @@ final class AppModel {
         let passwords = PasswordsService()
         self.passwords = passwords
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords))
-        viaMac.attach(store: store, passwords: passwords.builtIn)
+        history.prune()
+        store.environment.history = history
+        viaMac.attach(store: store, passwords: passwords.builtIn, history: history, bookmarks: bookmarks)
         installTabSwitcherMonitor()
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
         Task { [weak self] in

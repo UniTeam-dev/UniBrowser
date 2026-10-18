@@ -9,6 +9,8 @@ final class WebEnvironment {
     let dataStore = WKWebsiteDataStore.default()
     let passwords: CredentialProvider
     let extensions: ExtensionManager
+    /// Where finished page loads are recorded; nil records nothing (a private window).
+    var history: HistoryStore?
     /// ⌥+click on a link; AppModel shows the URL in Peek.
     var onPeek: ((URL) -> Void)?
 
