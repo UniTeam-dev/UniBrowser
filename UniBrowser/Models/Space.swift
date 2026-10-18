@@ -49,6 +49,8 @@ struct ArchivedTab: Identifiable, Codable, Hashable {
     var url: URL?
     var title: String
     var archivedAt: Date
+    /// The space it was closed in, where ⇧⌘T puts it back; nil for older entries.
+    var spaceID: UUID?
 }
 
 extension Color {

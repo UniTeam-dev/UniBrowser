@@ -80,6 +80,17 @@ struct AddressStrip: View {
                 iconButton("arrow.clockwise", label: "Обновить", enabled: tab?.url != nil) { tab?.webView?.reload() }
             }
             addressButton(tab?.url)
+            if let tab, abs(tab.pageZoom - 1) > 0.001 {
+                Button(PageZoom.label(tab.pageZoom)) { store.zoomSelectedTab(up: nil) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.secondaryText)
+                    .padding(.horizontal, 6)
+                    .frame(height: 22)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
+                    .help("Масштаб страницы — нажмите, чтобы вернуть 100 % (⌘0)")
+            }
             if let url = tab?.url {
                 iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }
             }
@@ -181,6 +192,7 @@ struct TabPane: View {
     var body: some View {
         VStack(spacing: 0) {
             PasswordBar(tab: tab).id(tab.id) // its error message belongs to this tab
+            FindBar(tab: tab).id(tab.id)
             DevToolsDock(tab: tab) {
                 DeviceFrame(tab: tab) {
                     ZStack(alignment: .top) {

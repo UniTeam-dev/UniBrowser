@@ -7,6 +7,7 @@ struct BrowserScreen: View {
     @Environment(AppModel.self) private var model
     @State private var showTabs = false
     @State private var showViaMacSettings = false
+    @State private var showDownloads = false
     /// The address entry on screen: for the current tab, or a new one («+»).
     @State private var addressEntry: AddressTarget?
     @State private var notice: String?
@@ -53,11 +54,15 @@ struct BrowserScreen: View {
                 onTabs: { showTabs = true },
                 onSwitchMode: { model.switchMode(to: $0) },
                 onViaMacSettings: { showViaMacSettings = true },
-                onSendToMac: sendToMac
+                onSendToMac: sendToMac,
+                onDownloads: { showDownloads = true }
             )
         }
         .sheet(isPresented: $showTabs) {
             TabsSheet(store: store, relay: model.mode == .viaMac ? model.relay : nil)
+        }
+        .sheet(isPresented: $showDownloads) {
+            DownloadsSheet()
         }
         .sheet(isPresented: $showViaMacSettings) {
             ViaMacSettingsView()
@@ -198,6 +203,7 @@ private struct BottomBar: View {
     let onSwitchMode: (BrowsingMode) -> Void
     let onViaMacSettings: () -> Void
     let onSendToMac: (URL) -> Void
+    let onDownloads: () -> Void
     @AppStorage("appearance") var appearance = Appearance.system
 
     var body: some View {
@@ -245,7 +251,23 @@ private struct BottomBar: View {
                 Button { tab?.webView?.goForward() } label: { Image(systemName: "chevron.forward") }
                     .disabled(!(tab?.canGoForward ?? false))
                 Spacer()
-                Button(action: onNewTab) { Image(systemName: "plus") }
+                // Tap: new tab; long press: recently closed tabs.
+                Menu {
+                    Section("Недавно закрытые") {
+                        if store.recentlyClosed.isEmpty { Text("Пока ничего") }
+                        ForEach(store.recentlyClosed) { item in
+                            Button(item.title.isEmpty ? (item.url?.host() ?? "Вкладка") : item.title) {
+                                store.reopenClosed(item.id)
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                } primaryAction: {
+                    onNewTab()
+                }
+                .accessibilityLabel("Новая вкладка")
+                .accessibilityHint("Удерживайте, чтобы открыть недавно закрытые")
                 Spacer()
                 Button(action: onTabs) {
                     Image(systemName: "square.on.square")
@@ -272,6 +294,11 @@ private struct BottomBar: View {
                     if let url = tab?.url {
                         ShareLink(item: url)
                     }
+                    if let tab, tab.url != nil {
+                        Button("Найти на странице", systemImage: "doc.text.magnifyingglass") { tab.showFind() }
+                        ZoomMenuRow(store: store, tab: tab)
+                    }
+                    Button("Загрузки", systemImage: "arrow.down.circle", action: onDownloads)
                     Picker("Оформление", systemImage: "circle.lefthalf.filled", selection: $appearance) {
                         ForEach(Appearance.allCases, id: \.self) { Text($0.title) }
                     }

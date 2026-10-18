@@ -18,6 +18,8 @@ final class MobileStore {
     /// Last snapshot time saved or applied, for last-writer-wins.
     @ObservationIgnored private(set) var lastModified = Date.distantPast
     @ObservationIgnored private var archive: [ArchivedTab] = []
+    /// Tabs closed this run, newest first, for the long press on «+»; not saved or synced.
+    private(set) var recentlyClosed: [ArchivedTab] = []
 
     /// Stable per-install id, stamped on every snapshot this phone writes.
     static let deviceID: String = {
@@ -112,6 +114,11 @@ final class MobileStore {
     func closeTab(_ tabID: UUID) {
         guard let tab = tabs[tabID] else { return }
         let wasSelected = activeSpace.selectedTabID == tabID
+        if tab.url != nil {
+            let spaceID = spaces.first { $0.allTabIDs.contains(tabID) }?.id
+            recentlyClosed.insert(ArchivedTab(url: tab.url, title: tab.displayTitle, archivedAt: .now, spaceID: spaceID), at: 0)
+            recentlyClosed = Array(recentlyClosed.prefix(10))
+        }
         tab.sleep()
         tabs[tabID] = nil
         for index in spaces.indices {
@@ -126,6 +133,16 @@ final class MobileStore {
             select(next.id)
         }
         scheduleSave()
+    }
+
+    /// Long press on «+»: a closed tab back in the space it left.
+    func reopenClosed(_ id: UUID) {
+        guard let index = recentlyClosed.firstIndex(where: { $0.id == id }) else { return }
+        let item = recentlyClosed.remove(at: index)
+        if let spaceID = item.spaceID, spaceID != activeSpaceID, spaces.contains(where: { $0.id == spaceID }) {
+            switchToSpace(spaceID)
+        }
+        newTab(url: item.url).title = item.title
     }
 
     /// An empty name goes back to the page title.

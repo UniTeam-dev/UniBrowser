@@ -33,6 +33,8 @@ targets:
         group: Shared
       # The link's protocol, transport and merge:
       - path: ../Shared/ViaMac
+      # Downloads and page zoom:
+      - path: ../Shared/Basics
     dependencies:
       - package: IrohLib
     settings:

@@ -10,6 +10,8 @@ final class BrowserStore {
     private(set) var tabs: [UUID: BrowserTab]
     /// Newest first.
     private(set) var archive: [ArchivedTab]
+    /// Tabs closed this run (⌘W, ×), newest first, for ⇧⌘T; not saved or synced.
+    private(set) var recentlyClosed: [ArchivedTab] = []
 
     @ObservationIgnored let environment: WebEnvironment
     @ObservationIgnored private var saveTask: Task<Void, Never>?
@@ -112,8 +114,16 @@ final class BrowserStore {
     }
 
     func closeTab(_ tabID: UUID) {
+        closeTab(tabID, remember: true)
+    }
+
+    private func closeTab(_ tabID: UUID, remember: Bool) {
         guard let tab = tabs[tabID] else { return }
         let wasSelected = activeSpace.selectedTabID == tabID
+        if remember, tab.url != nil {
+            recentlyClosed.insert(closedRecord(tab), at: 0)
+            recentlyClosed = Array(recentlyClosed.prefix(10))
+        }
         environment.extensions.tabClosed(tabID)
         tab.sleep()
         tabs[tabID] = nil
@@ -227,8 +237,25 @@ final class BrowserStore {
     /// Closes the tab but keeps its address in the archive.
     func archiveTab(_ tabID: UUID) {
         guard let tab = tabs[tabID] else { return }
-        archive.insert(ArchivedTab(url: tab.url, title: tab.displayTitle, archivedAt: .now), at: 0)
-        closeTab(tabID)
+        archive.insert(closedRecord(tab), at: 0)
+        closeTab(tabID, remember: false)
+    }
+
+    private func closedRecord(_ tab: BrowserTab) -> ArchivedTab {
+        ArchivedTab(url: tab.url, title: tab.displayTitle, archivedAt: .now,
+                    spaceID: spaces.first { $0.allTabIDs.contains(tab.id) }?.id)
+    }
+
+    /// ⇧⌘T and «Недавно закрытые»: a closed or archived tab back in the space it left.
+    func reopenClosed(_ id: UUID) {
+        let item: ArchivedTab
+        if let index = recentlyClosed.firstIndex(where: { $0.id == id }) {
+            item = recentlyClosed.remove(at: index)
+        } else if let index = archive.firstIndex(where: { $0.id == id }) {
+            item = archive.remove(at: index)
+        } else { return }
+        if let spaceID = item.spaceID, spaces.contains(where: { $0.id == spaceID }) { activeSpaceID = spaceID }
+        newTab(url: item.url).title = item.title
     }
 
     func restore(_ archivedID: UUID) {

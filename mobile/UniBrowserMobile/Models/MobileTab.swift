@@ -23,6 +23,8 @@ final class MobileTab: Identifiable {
     var loginOffers: [SyncedCredential] = []
     /// A login the user just submitted that is not saved yet.
     var pendingSave: SyncedCredential?
+    /// The site's zoom from «aA» in «…».
+    var pageZoom = 1.0
 
     @ObservationIgnored private(set) var webView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
