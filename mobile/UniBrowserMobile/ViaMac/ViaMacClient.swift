@@ -30,19 +30,54 @@ actor ViaMacClient {
         return endpoint
     }
 
-    /// Starts the loopback SOCKS port once. Connections arriving while the Mac
-    /// is unreachable are dropped, so those pages fail instead of loading direct.
-    func startLocalProxy(port: NWEndpoint.Port) throws {
+    /// Opens the loopback SOCKS port and returns once it listens. Connections
+    /// arriving while the Mac is unreachable are dropped, so those pages fail
+    /// instead of loading direct. iOS defuncts a suspended app's listeners, so
+    /// MacRelay closes the port on going to the background and opens it again
+    /// on return; a port that fails is dropped and reopened on the next start.
+    func startLocalProxy(port: NWEndpoint.Port) async throws {
         guard listener == nil else { return }
         let parameters = NWParameters.tcp
-        parameters.requiredInterfaceType = .loopback
+        // 127.0.0.1 only: on every interface, anyone on the phone's Wi-Fi could use the Mac's network.
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: port)
         parameters.allowLocalEndpointReuse = true
-        let listener = try NWListener(using: parameters, on: port)
+        let listener = try NWListener(using: parameters)
         listener.newConnectionHandler = { [weak self] local in
             Task { await self?.forward(local) }
         }
-        listener.start(queue: .global())
         self.listener = listener
+        let once = ResumeOnce<Void>()
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                once.set(continuation)
+                listener.stateUpdateHandler = { [weak self] state in
+                    switch state {
+                    case .ready:
+                        once.resume(with: .success(()))
+                    case .failed(let error), .waiting(let error):
+                        once.resume(with: .failure(error))
+                        Task { await self?.dropListener(listener) }
+                    case .cancelled:
+                        once.resume(with: .failure(CancellationError()))
+                    default:
+                        break
+                    }
+                }
+                listener.start(queue: .global())
+            }
+        } catch {
+            dropListener(listener)
+            throw error
+        }
+    }
+
+    func stopLocalProxy() {
+        listener.map(dropListener)
+    }
+
+    private func dropListener(_ dead: NWListener) {
+        dead.cancel()
+        if listener === dead { listener = nil }
     }
 
     private func forward(_ local: NWConnection) async {
