@@ -2,13 +2,19 @@ import SwiftUI
 import WebKit
 
 struct BrowserCommands: Commands {
-    let model: AppModel
+    let main: AppModel
     @Environment(\.openWindow) private var openWindow
+    /// The private window's model while one is key.
+    @FocusedValue(\.appModel) private var focused
+    /// The model of the key browser window: a private one, or the main one.
+    private var model: AppModel { focused ?? main }
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
             Button("Новая вкладка") { model.openPalette(.newTab) }
                 .keyboardShortcut("t")
+            Button("Новое приватное окно") { openWindow(id: "private") }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Новая группа") { model.store.newGroup(named: "Новая группа") }
                 .keyboardShortcut("g", modifiers: [.command, .shift])
             Divider()

@@ -33,6 +33,8 @@ targets:
         group: Shared
       # The link's protocol, transport and merge:
       - path: ../Shared/ViaMac
+      # Site permissions, ad blocking (with its bundled lists) and «О сайте»:
+      - path: ../Shared/Site
     dependencies:
       - package: IrohLib
     settings:

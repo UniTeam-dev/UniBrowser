@@ -6,15 +6,24 @@ import WebKit
 @MainActor
 final class WebEnvironment {
     weak var store: BrowserStore?
-    let dataStore = WKWebsiteDataStore.default()
+    /// A private window: cookies and storage in memory only, no session file, not mirrored
+    /// to the iPhone. History recording must check this and record nothing.
+    let isPrivate: Bool
+    let dataStore: WKWebsiteDataStore
     let passwords: CredentialProvider
     let extensions: ExtensionManager
+    /// Per-site permissions and the ad-blocking allow list.
+    let siteSettings: SiteSettingsStore
     /// ⌥+click on a link; AppModel shows the URL in Peek.
     var onPeek: ((URL) -> Void)?
 
-    init(passwords: CredentialProvider) {
+    init(passwords: CredentialProvider, siteSettings: SiteSettingsStore, isPrivate: Bool = false) {
         self.passwords = passwords
+        self.siteSettings = siteSettings
+        self.isPrivate = isPrivate
+        dataStore = isPrivate ? .nonPersistent() : .default()
         extensions = ExtensionManager(dataStore: dataStore)
+        ContentBlocker.shared.prepare()
     }
 
     /// Shared cookies and user agent, no tab scripts: what Peek's temporary page uses.

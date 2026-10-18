@@ -37,6 +37,15 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Asked only after the user allows a site in UniBrowser's own prompt. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Сайт, которому вы разрешили, использует камеру.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Сайт, которому вы разрешили, использует микрофон.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>Сайт, которому вы разрешили, узнаёт вашу геопозицию.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Сайт, которому вы разрешили, узнаёт вашу геопозицию.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>

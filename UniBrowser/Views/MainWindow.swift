@@ -15,6 +15,8 @@ struct MainWindow: View {
             }
         }
         .background(Palette.sidebar)
+        .background(WindowReader { model.window = $0 })
+        .focusedSceneValue(\.appModel, model)
         .ignoresSafeArea()
         .overlay {
             if let mode = model.paletteMode {
@@ -64,6 +66,8 @@ struct MainWindow: View {
 struct AddressStrip: View {
     @Environment(AppModel.self) private var model
     @Environment(BrowserStore.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isSiteInfoVisible = false
 
     var body: some View {
         let tab = store.selectedTab
@@ -83,23 +87,61 @@ struct AddressStrip: View {
             if let url = tab?.url {
                 iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }
             }
-            ExtensionBar(manager: store.environment.extensions)
+            if model.isPrivate {
+                Label("Приватное окно", systemImage: "eyeglasses")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .help("Приватное окно: история, cookie и вкладки не сохраняются")
+                    .accessibilityLabel("Приватное окно")
+            } else {
+                ExtensionBar(manager: store.environment.extensions)
+            }
         }
         .font(.system(size: 13))
         .padding(.horizontal, 10)
         .frame(height: 38)
         .background(Color.clear.contentShape(Rectangle()).gesture(WindowDragGesture()))
+        // Dark violet: a private window can't be taken for a normal one.
+        .background(model.isPrivate ? Color(hex: "#2A1B47") : .clear)
+        .environment(\.colorScheme, model.isPrivate ? .dark : colorScheme)
+    }
+
+    /// The lock / ⚠ in front of the address: opens «О сайте».
+    @ViewBuilder
+    private func siteButton(_ url: URL?) -> some View {
+        let tab = store.selectedTab
+        let icon: Image? = switch url?.scheme {
+        case "https": Image(systemName: "lock.fill")
+        case "http": Image(systemName: "exclamationmark.triangle")
+        case nil: nil
+        default: Image(systemName: "info.circle")
+        }
+        if let icon, let webView = tab?.webView, let tab {
+            Button { isSiteInfoVisible = true } label: {
+                icon.foregroundStyle(url?.scheme == "http" ? Color.orange : Palette.secondaryText)
+                    .frame(width: 18, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(url?.scheme == "http" ? "Соединение не защищено — о сайте" : "О сайте")
+            .accessibilityLabel("О сайте")
+            .popover(isPresented: $isSiteInfoVisible, arrowEdge: .bottom) {
+                SiteInfoView(webView: webView, settings: store.environment.siteSettings,
+                             permissions: SitePermission.allCases,
+                             permissionsNote: "Уведомления: решение запоминается, показывать их UniBrowser пока не умеет.",
+                             blockedCount: tab.blockedCount)
+                    .frame(width: 360)
+                    .frame(maxHeight: 560)
+            }
+        } else if url == nil {
+            Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondaryText)
+        }
     }
 
     private func addressButton(_ url: URL?) -> some View {
-        Button { model.openPalette(.address) } label: {
-            HStack(spacing: 6) {
-                switch url?.scheme {
-                case "https": Image(systemName: "lock.fill").foregroundStyle(Palette.secondaryText)
-                case "http": Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange).help("Соединение не защищено")
-                case nil: Image(systemName: "magnifyingglass").foregroundStyle(Palette.secondaryText)
-                default: EmptyView()
-                }
+        HStack(spacing: 6) {
+            siteButton(url)
+            Button { model.openPalette(.address) } label: {
                 // The whole URL, the domain in full colour; long ones lose their middle, not the end.
                 Group {
                     if let url {
@@ -117,20 +159,20 @@ struct AddressStrip: View {
                 }
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(url?.absoluteString ?? "")
-        .contextMenu {
-            if let url {
-                Button("Скопировать адрес") { copy(url) }
+            .buttonStyle(.plain)
+            .help(url?.absoluteString ?? "")
+            .contextMenu {
+                if let url {
+                    Button("Скопировать адрес") { copy(url) }
+                }
             }
         }
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
     private func copy(_ url: URL) {
@@ -180,6 +222,7 @@ struct TabPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let request = tab.permissionRequest { PermissionBar(request: request) }
             PasswordBar(tab: tab).id(tab.id) // its error message belongs to this tab
             DevToolsDock(tab: tab) {
                 DeviceFrame(tab: tab) {
@@ -322,5 +365,33 @@ struct WebViewContainer: NSViewRepresentable {
             hostView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
         container.window?.makeFirstResponder(webView)
+    }
+}
+
+extension FocusedValues {
+    /// The key browser window's model, so menu commands act on a private window when it is in front.
+    @Entry var appModel: AppModel?
+}
+
+/// Reports the NSWindow a SwiftUI view lands in.
+private struct WindowReader: NSViewRepresentable {
+    let onWindow: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView { Reader(onWindow: onWindow) }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    final class Reader: NSView {
+        let onWindow: (NSWindow) -> Void
+
+        init(onWindow: @escaping (NSWindow) -> Void) {
+            self.onWindow = onWindow
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func viewDidMoveToWindow() {
+            if let window { onWindow(window) }
+        }
     }
 }

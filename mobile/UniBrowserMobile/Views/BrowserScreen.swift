@@ -7,6 +7,7 @@ struct BrowserScreen: View {
     @Environment(AppModel.self) private var model
     @State private var showTabs = false
     @State private var showViaMacSettings = false
+    @State private var showSiteInfo = false
     /// The address entry on screen: for the current tab, or a new one («+»).
     @State private var addressEntry: AddressTarget?
     @State private var notice: String?
@@ -16,6 +17,9 @@ struct BrowserScreen: View {
         VStack(spacing: 0) {
             if model.mode == .viaMac {
                 ViaMacBanner(relay: model.relay) { showViaMacSettings = true }
+            }
+            if let request = store.selectedTab?.permissionRequest {
+                PermissionBar(request: request)
             }
             if let tab = store.selectedTab {
                 PasswordBar(tab: tab, passwords: model.passwords)
@@ -53,11 +57,25 @@ struct BrowserScreen: View {
                 onTabs: { showTabs = true },
                 onSwitchMode: { model.switchMode(to: $0) },
                 onViaMacSettings: { showViaMacSettings = true },
+                onSiteInfo: { showSiteInfo = true },
                 onSendToMac: sendToMac
             )
         }
         .sheet(isPresented: $showTabs) {
             TabsSheet(store: store, relay: model.mode == .viaMac ? model.relay : nil)
+        }
+        .sheet(isPresented: $showSiteInfo) {
+            if let webView = store.selectedTab?.webView {
+                NavigationStack {
+                    SiteInfoView(webView: webView, settings: store.environment.siteSettings,
+                                 permissions: [.camera, .microphone],
+                                 permissionsNote: "Геопозицию iOS спрашивает сама, когда сайт её запросит.")
+                        .navigationTitle("О сайте")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { Button("Готово") { showSiteInfo = false } }
+                }
+                .presentationDetents([.medium, .large])
+            }
         }
         .sheet(isPresented: $showViaMacSettings) {
             ViaMacSettingsView()
@@ -197,8 +215,10 @@ private struct BottomBar: View {
     let onTabs: () -> Void
     let onSwitchMode: (BrowsingMode) -> Void
     let onViaMacSettings: () -> Void
+    let onSiteInfo: () -> Void
     let onSendToMac: (URL) -> Void
     @AppStorage("appearance") var appearance = Appearance.system
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let tab = store.selectedTab
@@ -209,8 +229,8 @@ private struct BottomBar: View {
                     if store.spaces.count > 1 || store.activeSpace.imageData != nil {
                         SpaceIcon(space: store.activeSpace, size: 18)
                     }
-                    if mode == .viaMac {
-                        Image(systemName: BrowsingMode.viaMac.systemImage)
+                    if mode != .direct {
+                        Image(systemName: mode.systemImage)
                             .foregroundStyle(store.activeSpace.color)
                     }
                     Text(tab?.url.map { $0.absoluteString.replacingOccurrences(of: "^https?://(www\\.)?", with: "", options: .regularExpression) } ?? "Поиск или адрес")
@@ -272,6 +292,9 @@ private struct BottomBar: View {
                     if let url = tab?.url {
                         ShareLink(item: url)
                     }
+                    if tab?.webView != nil, tab?.url != nil {
+                        Button("О сайте", systemImage: "info.circle", action: onSiteInfo)
+                    }
                     Picker("Оформление", systemImage: "circle.lefthalf.filled", selection: $appearance) {
                         ForEach(Appearance.allCases, id: \.self) { Text($0.title) }
                     }
@@ -287,7 +310,9 @@ private struct BottomBar: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 4)
-        .background(.bar)
+        // Dark violet in private mode, like the Mac's private window.
+        .background(mode == .private ? AnyShapeStyle(Color(hex: "#2A1B47")) : AnyShapeStyle(.bar))
+        .environment(\.colorScheme, mode == .private ? .dark : colorScheme)
         .contentShape(Rectangle())
         // Swipe along the bar to change spaces, like swiping Safari's address bar between tabs.
         .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { drag in
@@ -316,9 +341,7 @@ private struct StartPage: View {
                         .offset(x: 6, y: 6)
                 }
             Text(space.name).font(.title2.bold())
-            Text(mode == .viaMac
-                 ? "Вкладки вашего Mac. Страницы открываются через его сеть."
-                 : "Откройте сайт или найдите что-нибудь.")
+            Text(hint)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Поиск или адрес", action: onSearch)
@@ -328,6 +351,14 @@ private struct StartPage: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var hint: String {
+        switch mode {
+        case .viaMac: "Вкладки вашего Mac. Страницы открываются через его сеть."
+        case .private: "История, cookie и вкладки не сохраняются и закроются, когда вы выйдете из режима."
+        case .direct: "Откройте сайт или найдите что-нибудь."
+        }
     }
 }
 

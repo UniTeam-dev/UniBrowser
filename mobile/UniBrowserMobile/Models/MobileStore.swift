@@ -31,7 +31,7 @@ final class MobileStore {
     init(mode: BrowsingMode, environment: MobileWebEnvironment) {
         self.mode = mode
         self.environment = environment
-        if let snapshot = Self.loadSnapshot(for: mode) {
+        if mode != .private, let snapshot = Self.loadSnapshot(for: mode) {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
@@ -50,6 +50,8 @@ final class MobileStore {
                 rest = [Space(name: "Личное", colorHex: Palette.spaceColors[1])]
             case .viaMac:
                 first = Space(name: "Через Mac", colorHex: Palette.spaceColors[3])
+            case .private:
+                first = Space(name: "Приватный", colorHex: Palette.spaceColors[3])
             }
             spaces = [first] + rest
             activeSpaceID = first.id
@@ -399,6 +401,7 @@ final class MobileStore {
     }
 
     private func writeToDisk(_ snapshot: SessionSnapshot) {
+        guard mode != .private else { return }
         if let data = try? JSONEncoder().encode(snapshot) {
             try? data.write(to: Self.snapshotURL(for: mode), options: .atomic)
         }
