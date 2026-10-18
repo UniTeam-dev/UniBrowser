@@ -201,7 +201,7 @@ final class AppModel {
 
     /// `sourceTabID` is set when peeking at an existing tab, so "Сделать вкладкой" selects it instead of duplicating.
     func openPeek(_ url: URL, sourceTabID: UUID? = nil) {
-        peek = PeekPage(url: url, sourceTabID: sourceTabID, configuration: store.environment.makeBaseConfiguration())
+        peek = PeekPage(url: url, sourceTabID: sourceTabID, configuration: store.environment.makeBaseConfiguration(dataStore: store.environment.dataStore(forSpace: store.activeSpaceID)))
     }
 
     func closePeek() {

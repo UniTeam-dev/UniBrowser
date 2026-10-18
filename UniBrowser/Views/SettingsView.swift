@@ -70,8 +70,7 @@ private struct PrivacySettings: View {
         .confirmationDialog("Удалить cookies, кэш и данные всех сайтов?", isPresented: $confirmClear) {
             Button("Удалить", role: .destructive) {
                 Task {
-                    let store = model.store.environment.dataStore
-                    await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+                    await model.store.environment.eraseAllWebsiteData()
                     cleared = true
                 }
             }

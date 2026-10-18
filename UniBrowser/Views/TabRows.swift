@@ -132,6 +132,13 @@ struct TabRow: View {
                 Divider()
                 Button("Без группы") { store.move(tab.id, toGroup: nil) }
             }
+            if store.spaces.count > 1 {
+                Menu("Переместить в пространство") {
+                    ForEach(store.spaces.filter { $0.id != store.activeSpaceID }) { space in
+                        Button(space.name) { store.moveTab(tab.id, toSpace: space.id) }
+                    }
+                }
+            }
             Button("Открыть в Split View") { store.openSplit(with: tab.id) }
                 .disabled(store.activeSpace.allTabIDs.count < 2)
             Button("Новая группа с этой вкладкой") { store.newGroup(named: "Новая группа", with: [tab.id]) }

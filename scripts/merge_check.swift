@@ -90,6 +90,15 @@ enum MergeCheck {
                 && withPicture.spaceImages == [work.id: Data([1, 2, 3])]
                 && stripped.withImages(withPicture.spaceImages).spaces == withPicture.spaces)
 
+        // (h) «Отдельные входы» travels with the space: the later side's value wins, absent stays absent.
+        var separate = work; separate.separateLogins = false
+        var oldWork = work; oldWork.separateLogins = nil
+        let h = SessionSnapshot.merged(snapshot([oldWork], [tab(m1, "m1")], at: .distantPast),
+                                       snapshot([separate], [tab(m1, "m1")], at: Date()), base: nil)
+        let decoded = try? JSONDecoder().decode(SessionSnapshot.self, from: JSONEncoder().encode(h))
+        check("(h) separateLogins travels through merge and the wire",
+              space(h, work.id)?.separateLogins == false && decoded.flatMap { space($0, work.id)?.separateLogins } == false)
+
         exit(failed ? 1 : 0)
     }
 }

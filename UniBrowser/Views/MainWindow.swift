@@ -388,6 +388,8 @@ struct WebViewContainer: NSViewRepresentable {
     }
 
     func updateNSView(_ container: NSView, context: Context) {
+        // Read so a tab put to sleep on screen (its space's store changed) wakes here again.
+        _ = tab.isAsleep
         let webView = tab.wake(environment: environment)
         guard let hostView = tab.hostView, hostView.superview !== container else { return }
         container.subviews.forEach { $0.removeFromSuperview() }

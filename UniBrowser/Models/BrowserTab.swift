@@ -75,13 +75,15 @@ final class BrowserTab: Identifiable {
         self.lastActivated = lastActivated
     }
 
-    /// Returns the live web view, creating it (and loading `url`) if the tab was asleep.
+    /// Returns the live web view, creating it (and loading `url`) if the tab was asleep,
+    /// with the cookies and site data of the space the tab is in.
     func wake(environment: WebEnvironment) -> WKWebView {
         if let webView { return webView }
 
         let controller = TabWebController(tab: self, environment: environment)
         let devTools = DevToolsSession()
-        let webView = WKWebView(frame: .zero, configuration: environment.makeConfiguration(for: controller, devTools: devTools))
+        let configuration = environment.makeConfiguration(for: controller, devTools: devTools, dataStore: environment.dataStore(forTab: id))
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         devTools.webView = webView
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true

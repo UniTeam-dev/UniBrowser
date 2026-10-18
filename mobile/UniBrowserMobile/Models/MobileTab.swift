@@ -34,7 +34,8 @@ final class MobileTab: Identifiable {
     /// «Выключить звук» in «…»; re-applied after each page load.
     var isMuted = false
 
-    @ObservationIgnored private(set) var webView: WKWebView?
+    /// Observed, so the page view re-attaches when the tab sleeps on screen (its space's store changed).
+    private(set) var webView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var controller: MobileTabController?
 
@@ -58,7 +59,8 @@ final class MobileTab: Identifiable {
         if let webView { return webView }
 
         let controller = MobileTabController(tab: self, environment: environment)
-        let webView = WKWebView(frame: .zero, configuration: environment.makeConfiguration(for: controller))
+        let configuration = environment.makeConfiguration(for: controller, dataStore: environment.dataStore(forTab: id))
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = controller
         webView.uiDelegate = controller

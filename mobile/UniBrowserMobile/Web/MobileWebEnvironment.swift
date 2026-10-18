@@ -8,7 +8,12 @@ import WebKit
 final class MobileWebEnvironment {
     weak var store: MobileStore?
     let mode: BrowsingMode
+    /// The mode's common store: spaces without «Отдельные входы».
     let dataStore: WKWebsiteDataStore
+    /// Stores of this mode's spaces with separate logins, by store id; one object per store.
+    private var separateStores: [UUID: WKWebsiteDataStore] = [:]
+    /// The via-Mac proxy, which every store of the mode must use.
+    private var proxies: [ProxyConfiguration] = []
     let passwords: PhonePasswords
     /// Per-site camera/microphone decisions and the ad-blocking allow list.
     let siteSettings: SiteSettingsStore
@@ -32,7 +37,40 @@ final class MobileWebEnvironment {
         ContentBlocker.shared.prepare()
     }
 
-    func makeConfiguration(for controller: MobileTabController) -> WKWebViewConfiguration {
+    /// The cookies and site data a tab uses: its space's own store when the space keeps
+    /// separate logins, else the mode's common one. Private mode is always in memory.
+    func dataStore(forTab tabID: UUID) -> WKWebsiteDataStore {
+        guard mode != .private, let space = store?.spaces.first(where: { $0.allTabIDs.contains(tabID) }),
+              space.separateLogins == true else { return dataStore }
+        return separateStore(Space.loginStoreID(space.id, mode: mode.rawValue))
+    }
+
+    private func separateStore(_ id: UUID) -> WKWebsiteDataStore {
+        if let existing = separateStores[id] { return existing }
+        let new = WKWebsiteDataStore(forIdentifier: id)
+        // Via Mac: a space's own store goes through the Mac like the common one.
+        if !proxies.isEmpty { new.proxyConfigurations = proxies }
+        separateStores[id] = new
+        return new
+    }
+
+    /// Deletes a deleted space's own cookies and site data. Its tabs must be asleep by now.
+    func removeSeparateStore(of spaceID: UUID) {
+        guard mode != .private else { return }
+        let id = Space.loginStoreID(spaceID, mode: mode.rawValue)
+        separateStores[id] = nil
+        Task {
+            // Retried: WebKit refuses while a just-closed web view still holds the store.
+            for attempt in 1...5 {
+                do { return try await WKWebsiteDataStore.remove(forIdentifier: id) } catch {
+                    if attempt == 5 { print("UniBrowser: space store not removed: \(error)") }
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
+        }
+    }
+
+    func makeConfiguration(for controller: MobileTabController, dataStore: WKWebsiteDataStore) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
         configuration.allowsInlineMediaPlayback = true
@@ -54,15 +92,24 @@ final class MobileWebEnvironment {
 
     /// Set once at launch, before any page loads.
     func apply(proxies: [ProxyConfiguration]) {
+        self.proxies = proxies
         dataStore.proxyConfigurations = proxies
+        for store in separateStores.values { store.proxyConfigurations = proxies }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.proxyConfigurations = proxies
         suggestionSession = URLSession(configuration: configuration)
     }
 
-    /// Clears cookies, cache and storage of this mode only.
+    /// Clears cookies, cache and storage of this mode only: the common store and every space's own.
     func eraseWebsiteData() async {
-        await dataStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        await dataStore.removeData(ofTypes: types, modifiedSince: .distantPast)
+        guard mode != .private else { return }
+        let existing = Set(await WKWebsiteDataStore.allDataStoreIdentifiers)
+        for space in store?.spaces ?? [] {
+            let id = Space.loginStoreID(space.id, mode: mode.rawValue)
+            if existing.contains(id) { await separateStore(id).removeData(ofTypes: types, modifiedSince: .distantPast) }
+        }
     }
 }
 

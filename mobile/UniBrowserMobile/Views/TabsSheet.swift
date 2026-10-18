@@ -12,6 +12,7 @@ struct TabsSheet: View {
     @State private var renamingTabID: UUID?
     @State private var tabName = ""
     @State private var pane = Pane.tabs
+    @State private var deletingSpace: Space?
 
     private enum Pane: String, CaseIterable {
         case tabs = "Вкладки", bookmarks = "Закладки", history = "История"
@@ -61,16 +62,6 @@ struct TabsSheet: View {
                     .foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
             }
-            if store.spaces.count > 1 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(store.spaces) { spaceChip($0) }
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-            }
-
             let space = store.activeSpace
 
             if !space.pinnedTabIDs.isEmpty {
@@ -106,6 +97,18 @@ struct TabsSheet: View {
                     .onMove { store.reorder(group: nil, from: $0, to: $1) }
             }
         }
+        // Outside the List: inside one row, every chip got the first chip's context menu.
+        .safeAreaInset(edge: .top) {
+            if store.spaces.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(store.spaces) { spaceChip($0) }
+                    }
+                    .padding(.horizontal)
+                }
+                .padding(.vertical, 4)
+            }
+        }
         .navigationTitle(store.activeSpace.name)
         .toolbar {
             ToolbarItemGroup(placement: .bottomBar) {
@@ -125,6 +128,13 @@ struct TabsSheet: View {
                 newGroupName = ""
             }
             Button("Отмена", role: .cancel) { newGroupName = "" }
+        }
+        .confirmationDialog("Удалить пространство «\(deletingSpace?.name ?? "")»?",
+                            isPresented: Binding(get: { deletingSpace != nil }, set: { if !$0 { deletingSpace = nil } }),
+                            titleVisibility: .visible, presenting: deletingSpace) { space in
+            Button("Удалить", role: .destructive) { store.deleteSpace(space.id) }
+        } message: { _ in
+            Text("Вкладки закроются. Входы на сайтах этого пространства, его cookie и данные сайтов будут удалены.")
         }
         .alert("Название вкладки", isPresented: Binding(get: { renamingTabID != nil }, set: { if !$0 { renamingTabID = nil } })) {
             TextField("Пусто — название страницы", text: $tabName)
@@ -163,6 +173,15 @@ struct TabsSheet: View {
                     .disabled(index == 0)
                 Button("Переместить вправо", systemImage: "arrow.right") { store.moveSpace(space.id, to: index + 1) }
                     .disabled(index == store.spaces.count - 1)
+            }
+            if store.mode != .private {
+                // A menu shows a section's header but not its footer.
+                Section("Свои cookie и данные сайтов; пароли и история общие. Открытая страница перезагрузится.") {
+                    Toggle("Отдельные входы", systemImage: "person.badge.key", isOn: Binding(
+                        get: { space.separateLogins == true }, set: { store.setSeparateLogins(space.id, $0) }))
+                }
+                Button("Удалить пространство", systemImage: "trash", role: .destructive) { deletingSpace = space }
+                    .disabled(store.spaces.count < 2)
             }
         }
     }
@@ -212,6 +231,13 @@ struct TabsSheet: View {
                         Button(group.name) { store.move(tabID, toGroup: group.id) }
                     }
                     Button("Без группы") { store.move(tabID, toGroup: nil) }
+                }
+                if store.spaces.count > 1 {
+                    Menu("В пространство", systemImage: "square.on.square") {
+                        ForEach(store.spaces.filter { $0.id != store.activeSpaceID }) { space in
+                            Button(space.name) { store.moveTab(tabID, toSpace: space.id) }
+                        }
+                    }
                 }
                 Button("Закрыть", systemImage: "xmark", role: .destructive) { store.closeTab(tabID) }
             }
