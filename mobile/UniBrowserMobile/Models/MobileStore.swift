@@ -39,7 +39,7 @@ final class MobileStore {
         self.environment = environment
         // The private mode keeps no history, and its bookmarks live only until the mode is left.
         history = mode == .private ? nil : HistoryStore(fileURL: LibraryFiles.url("history-\(mode.rawValue).sqlite"), deviceID: Self.deviceID)
-        history?.prune()
+        history?.pruneForRetentionSetting()
         bookmarks = BookmarkStore(fileURL: mode == .private
             ? FileManager.default.temporaryDirectory.appending(path: "bookmarks-private-\(UUID().uuidString).json")
             : LibraryFiles.url("bookmarks-\(mode.rawValue).json"))

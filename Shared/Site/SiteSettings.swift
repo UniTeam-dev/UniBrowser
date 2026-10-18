@@ -96,6 +96,11 @@ final class SiteSettingsStore {
         update(host) { $0.allowsAds = allows }
     }
 
+    /// Forgets every decision and the ad-blocking exception for `host`.
+    func reset(host: String) {
+        update(host) { $0 = SitePermissions() }
+    }
+
     private func update(_ host: String, _ change: (inout SitePermissions) -> Void) {
         let key = Self.key(host)
         var site = sites[key] ?? SitePermissions()

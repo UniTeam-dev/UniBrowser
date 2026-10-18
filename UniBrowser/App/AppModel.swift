@@ -68,7 +68,7 @@ final class AppModel {
         installTabSwitcherMonitor()
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
         guard !isPrivate else { return } // a private window keeps no history and isn't mirrored
-        history.prune()
+        history.pruneForRetentionSetting()
         store.environment.history = history
         viaMac.attach(store: store, passwords: passwords.builtIn, history: history, bookmarks: bookmarks)
         Task { [weak self] in

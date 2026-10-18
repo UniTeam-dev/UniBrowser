@@ -20,7 +20,7 @@ struct MainWindow: View {
         .ignoresSafeArea()
         .overlay {
             if let mode = model.paletteMode {
-                CommandPalette(mode: mode)
+                CommandPalette(mode: mode, isPrivate: model.isPrivate)
             }
         }
         .sheet(isPresented: Binding(

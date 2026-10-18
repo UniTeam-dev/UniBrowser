@@ -2,18 +2,33 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// MERGE(A): the one place imported items reach the library. Connect at merge:
-/// bookmarks → `model.bookmarks` (BookmarkStore: a folder `folder` at the root, `folderPath` as subfolders,
-/// `add(url:title:in:)` for each), visits → `model.history.merge(_:)` (HistoryStore, as `Visit`s with this Mac's
-/// deviceID). Until then it only counts what it was given. Returns how many were added.
+/// Where imported items land: bookmarks in a new root folder (`folder`, with the source's
+/// folders inside it), visits in this Mac's history (they sync to the iPhone like its own).
+/// Returns how many were added.
 @MainActor
 enum ImportSink {
     static func add(_ bookmarks: [ImportedBookmark], folder: String, model: AppModel) -> Int {
-        bookmarks.count
+        guard !bookmarks.isEmpty else { return 0 }
+        let store = model.bookmarks
+        var folders: [[String]: UUID] = [[]: store.addFolder(title: folder).id]
+        func folderID(_ path: [String]) -> UUID {
+            if let id = folders[path] { return id }
+            let id = store.addFolder(title: path.last ?? "", in: folderID(Array(path.dropLast()))).id
+            folders[path] = id
+            return id
+        }
+        for bookmark in bookmarks {
+            _ = store.add(url: bookmark.url, title: bookmark.title, in: folderID(bookmark.folderPath))
+        }
+        return bookmarks.count
     }
 
     static func add(_ visits: [ImportedVisit], model: AppModel) -> Int {
-        visits.count
+        let deviceID = model.history.deviceID
+        model.history.merge(visits.map {
+            Visit(id: UUID(), url: $0.url, title: $0.title, visitedAt: $0.visitedAt, deviceID: deviceID)
+        })
+        return visits.count
     }
 }
 

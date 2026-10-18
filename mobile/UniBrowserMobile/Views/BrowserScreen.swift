@@ -120,7 +120,7 @@ struct BrowserScreen: View {
             if case .success = result { show("PDF сохранён") }
         }
         .fullScreenCover(item: $addressEntry) { target in
-            AddressEntry(store: store, initialText: target == .newTab ? "" : store.selectedTab?.url?.absoluteString ?? "") { url in
+            AddressEntry(store: store, initialText: target == .newTab ? "" : store.selectedTab?.url?.absoluteString ?? "", isPrivate: store.environment.isPrivate) { url in
                 if target == .currentTab, let tab = store.selectedTab { tab.load(url) } else { store.newTab(url: url) }
             }
         }

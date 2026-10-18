@@ -59,13 +59,12 @@ private struct PrivacySettings: View {
                 Text("год").tag(365)
                 Text("всегда").tag(0)
             }
-            // MERGE(A/B): «Очистить историю…» (the history window's clear menu) goes here.
+            ClearHistoryButton(history: model.history)
             LabeledContent("Данные сайтов") {
                 Button(cleared ? "Удалено" : "Удалить cookies и кэш…") { confirmClear = true }.disabled(cleared)
             }
             Toggle("Блокировать рекламу и трекеры", isOn: $adBlocking)
-            // MERGE(E): the permissions list (SitePermissions: сайт — камера, микрофон, геолокация,
-            // уведомления) goes here as its own Section.
+            SitePermissionsSection(settings: model.store.environment.siteSettings)
         }
         .formStyle(.grouped)
         .confirmationDialog("Удалить cookies, кэш и данные всех сайтов?", isPresented: $confirmClear) {

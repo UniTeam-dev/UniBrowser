@@ -41,14 +41,14 @@ struct SettingsSheet: View {
                         Text("год").tag(365)
                         Text("всегда").tag(0)
                     }
-                    // MERGE(A/C): «Очистить историю…» goes here.
+                    if let history = model.store.history { ClearHistoryButton(history: history) }
                     Button(cleared ? "Данные сайтов удалены" : "Удалить cookies и кэш («\(model.mode.title)»)…", role: .destructive) {
                         confirmClear = true
                     }
                     .disabled(cleared)
                     Toggle("Блокировать рекламу и трекеры", isOn: $adBlocking)
-                    // MERGE(E): the permissions list (SitePermissions) goes here as its own Section.
                 }
+                SitePermissionsSection(settings: model.siteSettings)
                 Section("Пароли") {
                     LabeledContent("С Mac и сохранённые здесь", value: "\(model.passwords.all.count)")
                 }

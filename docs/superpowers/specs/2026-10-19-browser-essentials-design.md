@@ -162,7 +162,7 @@ then run in parallel, each touching its own files.
   file; history from `~/Library/Safari/History.db` when Full Disk Access is
   granted, with a button that opens the privacy pane), from an HTML bookmarks
   file (Netscape format).
-- Reader mode: `Readability.js` (MIT, bundled) in an isolated content world,
+- Reader mode: `Readability.js` (Apache-2.0, bundled) in an isolated content world,
   shown as a clean page with font size and theme controls; button in the address
   strip when the page is readable. iPhone: same, in «…».
 - Print / PDF: Mac ⌘P (`printOperation`), «Сохранить как PDF…» (`createPDF`);
