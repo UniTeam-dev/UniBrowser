@@ -10,6 +10,7 @@ struct BrowserScreen: View {
     /// The address entry on screen: for the current tab, or a new one («+»).
     @State private var addressEntry: AddressTarget?
     @State private var notice: String?
+    @State private var showBookmarkEditor = false
 
     var body: some View {
         let store = model.store
@@ -53,11 +54,17 @@ struct BrowserScreen: View {
                 onTabs: { showTabs = true },
                 onSwitchMode: { model.switchMode(to: $0) },
                 onViaMacSettings: { showViaMacSettings = true },
-                onSendToMac: sendToMac
+                onSendToMac: sendToMac,
+                onBookmark: { showBookmarkEditor = true }
             )
         }
         .sheet(isPresented: $showTabs) {
             TabsSheet(store: store, relay: model.mode == .viaMac ? model.relay : nil)
+        }
+        .sheet(isPresented: $showBookmarkEditor) {
+            if let tab = store.selectedTab, let url = tab.url {
+                BookmarkEditor(bookmarks: store.bookmarks, url: url, title: tab.displayTitle)
+            }
         }
         .sheet(isPresented: $showViaMacSettings) {
             ViaMacSettingsView()
@@ -198,6 +205,7 @@ private struct BottomBar: View {
     let onSwitchMode: (BrowsingMode) -> Void
     let onViaMacSettings: () -> Void
     let onSendToMac: (URL) -> Void
+    let onBookmark: () -> Void
     @AppStorage("appearance") var appearance = Appearance.system
 
     var body: some View {
@@ -271,6 +279,13 @@ private struct BottomBar: View {
                     }
                     if let url = tab?.url {
                         ShareLink(item: url)
+                    }
+                    if let url = tab?.url {
+                        Section {
+                            let isBookmarked = store.bookmarks.bookmark(for: url) != nil
+                            Button(isBookmarked ? "Изменить закладку" : "Добавить в закладки",
+                                   systemImage: isBookmarked ? "star.fill" : "star", action: onBookmark)
+                        }
                     }
                     Picker("Оформление", systemImage: "circle.lefthalf.filled", selection: $appearance) {
                         ForEach(Appearance.allCases, id: \.self) { Text($0.title) }
@@ -361,6 +376,27 @@ private struct AddressEntry: View {
                         }
                     }
                 }
+                let marks = query.isEmpty ? [] : Array(store.bookmarks.search(query).prefix(4))
+                if !marks.isEmpty {
+                    Section("Закладки") {
+                        ForEach(marks) { mark in
+                            if let url = mark.url {
+                                suggestion(mark.title.isEmpty ? (url.host() ?? url.absoluteString) : mark.title,
+                                           detail: url.host(), icon: "book") { open(url) }
+                            }
+                        }
+                    }
+                }
+                let listed = Set(tabs.compactMap(\.url) + marks.compactMap(\.url))
+                let visits = query.isEmpty ? [] : (store.history?.search(query, limit: 8) ?? []).filter { !listed.contains($0.url) }.prefix(4)
+                if !visits.isEmpty {
+                    Section("История") {
+                        ForEach(visits) { visit in
+                            suggestion(visit.title.isEmpty ? visit.url.absoluteString : visit.title,
+                                       detail: visit.host, icon: "clock") { open(visit.url) }
+                        }
+                    }
+                }
             }
             .listStyle(.plain)
             .scrollDismissesKeyboard(.immediately)
@@ -400,6 +436,11 @@ private struct AddressEntry: View {
                 UIApplication.shared.sendAction(#selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
             }
         }
+    }
+
+    private func open(_ url: URL) {
+        onSubmit(url.absoluteString)
+        dismiss()
     }
 
     private func submit() {
