@@ -12,6 +12,7 @@ struct BrowserScreen: View {
     /// The address entry on screen: for the current tab, or a new one («+»).
     @State private var addressEntry: AddressTarget?
     @State private var notice: String?
+    @State private var showBookmarkEditor = false
 
     var body: some View {
         let store = model.store
@@ -60,7 +61,8 @@ struct BrowserScreen: View {
                 onViaMacSettings: { showViaMacSettings = true },
                 onSiteInfo: { showSiteInfo = true },
                 onSendToMac: sendToMac,
-                onDownloads: { showDownloads = true }
+                onDownloads: { showDownloads = true },
+                onBookmark: { showBookmarkEditor = true }
             )
         }
         .sheet(isPresented: $showTabs) {
@@ -80,6 +82,11 @@ struct BrowserScreen: View {
                         .toolbar { Button("Готово") { showSiteInfo = false } }
                 }
                 .presentationDetents([.medium, .large])
+            }
+        }
+        .sheet(isPresented: $showBookmarkEditor) {
+            if let tab = store.selectedTab, let url = tab.url {
+                BookmarkEditor(bookmarks: store.bookmarks, url: url, title: tab.displayTitle)
             }
         }
         .sheet(isPresented: $showViaMacSettings) {
@@ -223,6 +230,7 @@ private struct BottomBar: View {
     let onSiteInfo: () -> Void
     let onSendToMac: (URL) -> Void
     let onDownloads: () -> Void
+    let onBookmark: () -> Void
     @AppStorage("appearance") var appearance = Appearance.system
     @Environment(\.colorScheme) private var colorScheme
 
@@ -322,6 +330,13 @@ private struct BottomBar: View {
                     if tab?.webView != nil, tab?.url != nil {
                         Button("О сайте", systemImage: "info.circle", action: onSiteInfo)
                     }
+                    if let url = tab?.url {
+                        Section {
+                            let isBookmarked = store.bookmarks.bookmark(for: url) != nil
+                            Button(isBookmarked ? "Изменить закладку" : "Добавить в закладки",
+                                   systemImage: isBookmarked ? "star.fill" : "star", action: onBookmark)
+                        }
+                    }
                     Picker("Оформление", systemImage: "circle.lefthalf.filled", selection: $appearance) {
                         ForEach(Appearance.allCases, id: \.self) { Text($0.title) }
                     }
@@ -419,6 +434,27 @@ private struct AddressEntry: View {
                         }
                     }
                 }
+                let marks = query.isEmpty ? [] : Array(store.bookmarks.search(query).prefix(4))
+                if !marks.isEmpty {
+                    Section("Закладки") {
+                        ForEach(marks) { mark in
+                            if let url = mark.url {
+                                suggestion(mark.title.isEmpty ? (url.host() ?? url.absoluteString) : mark.title,
+                                           detail: url.host(), icon: "book") { open(url) }
+                            }
+                        }
+                    }
+                }
+                let listed = Set(tabs.compactMap(\.url) + marks.compactMap(\.url))
+                let visits = query.isEmpty ? [] : (store.history?.search(query, limit: 8) ?? []).filter { !listed.contains($0.url) }.prefix(4)
+                if !visits.isEmpty {
+                    Section("История") {
+                        ForEach(visits) { visit in
+                            suggestion(visit.title.isEmpty ? visit.url.absoluteString : visit.title,
+                                       detail: visit.host, icon: "clock") { open(visit.url) }
+                        }
+                    }
+                }
             }
             .listStyle(.plain)
             .scrollDismissesKeyboard(.immediately)
@@ -458,6 +494,11 @@ private struct AddressEntry: View {
                 UIApplication.shared.sendAction(#selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
             }
         }
+    }
+
+    private func open(_ url: URL) {
+        onSubmit(url.absoluteString)
+        dismiss()
     }
 
     private func submit() {

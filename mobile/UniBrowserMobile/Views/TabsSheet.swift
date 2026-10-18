@@ -11,92 +11,127 @@ struct TabsSheet: View {
     @State private var isNamingGroup = false
     @State private var renamingTabID: UUID?
     @State private var tabName = ""
+    @State private var pane = Pane.tabs
+
+    private enum Pane: String, CaseIterable {
+        case tabs = "Вкладки", bookmarks = "Закладки", history = "История"
+    }
 
     var body: some View {
         NavigationStack {
-            List {
-                if let relay {
-                    Label(syncText(relay), systemImage: relay.isSyncing ? "arrow.triangle.2.circlepath" : "laptopcomputer.slash")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .listRowBackground(Color.clear)
-                }
-                if store.spaces.count > 1 {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(store.spaces) { spaceChip($0) }
-                        }
+            Group {
+                switch pane {
+                case .tabs: tabsList
+                case .bookmarks: BookmarksList(bookmarks: store.bookmarks, folderID: nil, onOpen: open).navigationTitle("Закладки")
+                case .history:
+                    if let history = store.history {
+                        HistoryList(history: history, onOpen: open).navigationTitle("История")
+                    } else {
+                        ContentUnavailableView("История не сохраняется", systemImage: "clock")
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                }
-
-                let space = store.activeSpace
-
-                if !space.pinnedTabIDs.isEmpty {
-                    Section("Закреплённые") {
-                        ForEach(space.pinnedTabIDs, id: \.self) { row($0) }
-                            .onMove { store.reorder(group: nil, pinned: true, from: $0, to: $1) }
-                    }
-                }
-
-                ForEach(space.groups) { group in
-                    Section {
-                        if group.isExpanded {
-                            ForEach(store.orderedTabIDs(group), id: \.self) { row($0) }
-                                .onMove { store.reorder(group: group.id, from: $0, to: $1) }
-                        }
-                    } header: {
-                        Button {
-                            store.toggleGroup(group.id)
-                        } label: {
-                            Label(group.name, systemImage: group.isExpanded ? "folder" : "folder.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("Удалить группу с вкладками", systemImage: "trash", role: .destructive) {
-                                store.deleteGroup(group.id)
-                            }
-                        }
-                    }
-                }
-
-                Section("Сегодня") {
-                    ForEach(space.looseTabIDs, id: \.self) { row($0) }
-                        .onMove { store.reorder(group: nil, from: $0, to: $1) }
                 }
             }
-            .navigationTitle(store.activeSpace.name)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("Раздел", selection: $pane) {
+                        ForEach(Pane.allCases, id: \.self) { Text($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Готово") { dismiss() }
                 }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    Button("Новая группа", systemImage: "folder.badge.plus") { isNamingGroup = true }
-                    Spacer()
-                    Button("Новая вкладка", systemImage: "plus") {
-                        store.newTab(url: nil)
-                        dismiss()
-                    }
-                }
-            }
-            .alert("Новая группа", isPresented: $isNamingGroup) {
-                TextField("Название", text: $newGroupName)
-                Button("Создать") {
-                    let name = newGroupName.trimmingCharacters(in: .whitespaces)
-                    if !name.isEmpty { store.newGroup(named: name) }
-                    newGroupName = ""
-                }
-                Button("Отмена", role: .cancel) { newGroupName = "" }
-            }
-            .alert("Название вкладки", isPresented: Binding(get: { renamingTabID != nil }, set: { if !$0 { renamingTabID = nil } })) {
-                TextField("Пусто — название страницы", text: $tabName)
-                Button("Сохранить") { if let id = renamingTabID { store.renameTab(id, to: tabName) } }
-                Button("Отмена", role: .cancel) {}
             }
         }
     }
+
+    /// A bookmark or history page: in the tab on screen, or a new one.
+    private func open(_ url: URL, inNewTab: Bool) {
+        store.open(input: url.absoluteString, inNewTab: inNewTab || store.selectedTab == nil)
+        dismiss()
+    }
+
+    private var tabsList: some View {
+        List {
+            if let relay {
+                Label(syncText(relay), systemImage: relay.isSyncing ? "arrow.triangle.2.circlepath" : "laptopcomputer.slash")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .listRowBackground(Color.clear)
+            }
+            if store.spaces.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(store.spaces) { spaceChip($0) }
+                    }
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            }
+
+            let space = store.activeSpace
+
+            if !space.pinnedTabIDs.isEmpty {
+                Section("Закреплённые") {
+                    ForEach(space.pinnedTabIDs, id: \.self) { row($0) }
+                        .onMove { store.reorder(group: nil, pinned: true, from: $0, to: $1) }
+                }
+            }
+
+            ForEach(space.groups) { group in
+                Section {
+                    if group.isExpanded {
+                        ForEach(store.orderedTabIDs(group), id: \.self) { row($0) }
+                            .onMove { store.reorder(group: group.id, from: $0, to: $1) }
+                    }
+                } header: {
+                    Button {
+                        store.toggleGroup(group.id)
+                    } label: {
+                        Label(group.name, systemImage: group.isExpanded ? "folder" : "folder.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Удалить группу с вкладками", systemImage: "trash", role: .destructive) {
+                            store.deleteGroup(group.id)
+                        }
+                    }
+                }
+            }
+
+            Section("Сегодня") {
+                ForEach(space.looseTabIDs, id: \.self) { row($0) }
+                    .onMove { store.reorder(group: nil, from: $0, to: $1) }
+            }
+        }
+        .navigationTitle(store.activeSpace.name)
+        .toolbar {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button("Новая группа", systemImage: "folder.badge.plus") { isNamingGroup = true }
+                Spacer()
+                Button("Новая вкладка", systemImage: "plus") {
+                    store.newTab(url: nil)
+                    dismiss()
+                }
+            }
+        }
+        .alert("Новая группа", isPresented: $isNamingGroup) {
+            TextField("Название", text: $newGroupName)
+            Button("Создать") {
+                let name = newGroupName.trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { store.newGroup(named: name) }
+                newGroupName = ""
+            }
+            Button("Отмена", role: .cancel) { newGroupName = "" }
+        }
+        .alert("Название вкладки", isPresented: Binding(get: { renamingTabID != nil }, set: { if !$0 { renamingTabID = nil } })) {
+            TextField("Пусто — название страницы", text: $tabName)
+            Button("Сохранить") { if let id = renamingTabID { store.renameTab(id, to: tabName) } }
+            Button("Отмена", role: .cancel) {}
+        }
+}
 
     private func syncText(_ relay: MacRelay) -> String {
         guard let mac = relay.pairedMac else { return "Mac не подключён: вкладки только на телефоне" }
