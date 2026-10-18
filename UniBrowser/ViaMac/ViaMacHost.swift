@@ -5,7 +5,8 @@ import SystemConfiguration
 
 /// The Mac side of the iPhone link: paired iPhones send every page of their
 /// «Через Mac» mode through this Mac and its network, and get a live
-/// two-way mirror of this Mac's spaces, groups, tabs and saved logins.
+/// two-way mirror of this Mac's spaces, groups, tabs, saved logins, bookmarks
+/// and history. The Mac keeps one library; all its phones share it.
 @MainActor
 @Observable
 final class ViaMacHost {
@@ -50,6 +51,9 @@ final class ViaMacHost {
     @ObservationIgnored private var lastMirrored: SessionSnapshot?
     @ObservationIgnored private var lastSentPasswords: [SyncedCredential] = []
     @ObservationIgnored private var passwordsWatch: Task<Void, Never>?
+    @ObservationIgnored private var history: HistoryStore?
+    @ObservationIgnored private var bookmarks: BookmarkStore?
+    @ObservationIgnored private var historyPump: Task<Void, Never>?
 
     private enum Keys {
         static let enabled = "viaMac.enabled"
@@ -63,10 +67,17 @@ final class ViaMacHost {
     }
 
     /// Called once from AppModel; starts serving if the user left it on.
-    func attach(store: BrowserStore, passwords: KeychainCredentialProvider) {
+    func attach(store: BrowserStore, passwords: KeychainCredentialProvider, history: HistoryStore, bookmarks: BookmarkStore) {
         self.store = store
         self.passwords = passwords
+        self.history = history
+        self.bookmarks = bookmarks
         store.onLocalChange = { [weak self] snapshot in self?.mirror(snapshot) }
+        bookmarks.onLocalChange = { [weak self] in
+            guard let self, let engine = self.engine, !self.syncingDeviceIDs.isEmpty else { return }
+            let all = bookmarks.all
+            Task { await engine.broadcast(.bookmarks(all)) }
+        }
         if isEnabled { Task { await start() } }
     }
 
@@ -100,6 +111,8 @@ final class ViaMacHost {
         syncingDeviceIDs = []
         passwordsWatch?.cancel()
         passwordsWatch = nil
+        historyPump?.cancel()
+        historyPump = nil
         pairing = nil
         status = .off
         updateAwakeActivity()
@@ -171,8 +184,12 @@ final class ViaMacHost {
 
     /// The phone's first sync frame after connecting. Merges what both sides did
     /// while apart and returns what the phone should get back.
-    func hello(session: SessionSnapshot, base: SessionSnapshot?, savedPasswords: [SyncedCredential]) async -> [SyncMessage] {
-        guard let store else { return [] }
+    func hello(session: SessionSnapshot, base: SessionSnapshot?, savedPasswords: [SyncedCredential],
+               bookmarks remoteBookmarks: [Bookmark], from deviceID: String) async -> [SyncMessage] {
+        guard let store, let bookmarks else { return [] }
+        if bookmarks.merge(remoteBookmarks) {
+            await engine?.broadcast(.bookmarks(bookmarks.all), except: deviceID)
+        }
         for credential in savedPasswords {
             try? await passwords?.save(Credential(host: credential.host, username: credential.username, password: credential.password))
         }
@@ -191,12 +208,13 @@ final class ViaMacHost {
         lastMirrored = result
         let logins = await allPasswords()
         lastSentPasswords = logins
-        return [.session(result), .passwords(logins)]
+        return [.session(result), .passwords(logins), .bookmarks(bookmarks.all)]
     }
 
     func syncStarted(_ deviceID: String) {
         syncingDeviceIDs.insert(deviceID)
         watchPasswords()
+        pumpHistory()
     }
 
     func syncEnded(_ deviceID: String) {
@@ -204,6 +222,8 @@ final class ViaMacHost {
         if syncingDeviceIDs.isEmpty {
             passwordsWatch?.cancel()
             passwordsWatch = nil
+            historyPump?.cancel()
+            historyPump = nil
         }
     }
 
@@ -223,8 +243,42 @@ final class ViaMacHost {
         case .savePassword(let credential):
             try? await passwords?.save(Credential(host: credential.host, username: credential.username, password: credential.password))
             await sendPasswordsIfChanged()
+        case .bookmarks(let remote):
+            guard let bookmarks else { return }
+            if bookmarks.merge(remote) {
+                await engine?.broadcast(.bookmarks(bookmarks.all), except: deviceID)
+            }
+            // The phone is missing something the Mac has: it gets the Mac's list back.
+            if Set(bookmarks.all) != Set(remote) {
+                await engine?.send(.bookmarks(bookmarks.all), to: deviceID)
+            }
+        case .history(let visits):
+            history?.merge(visits)
         case .hello, .passwords, .sessionKeepingImages:
             break
+        }
+    }
+
+    /// Every 5 s while phones are syncing, each gets the visits made since the
+    /// last batch it was sent (its cursor survives relaunches). Visits that came
+    /// from one phone go on to the others too.
+    private func pumpHistory() {
+        guard historyPump == nil else { return }
+        historyPump = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let engine = self.engine, let history = self.history else { return }
+                for deviceID in self.syncingDeviceIDs {
+                    let key = "viaMac.historySent." + deviceID
+                    let cursor = UserDefaults.standard.object(forKey: key) as? Date ?? .distantPast
+                    // Batches stay small; the first sync of a long history takes a few rounds.
+                    let batch = Array(history.visits(since: cursor).prefix(500))
+                    guard let last = batch.last else { continue }
+                    if await engine.sendChecked(.history(batch), to: deviceID) {
+                        UserDefaults.standard.set(last.visitedAt, forKey: key)
+                    }
+                }
+                try? await Task.sleep(for: .seconds(5))
+            }
         }
     }
 

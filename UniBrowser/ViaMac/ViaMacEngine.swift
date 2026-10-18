@@ -24,7 +24,7 @@ actor ViaMacEngine {
         let endpoint = try await Endpoint.bind(options: EndpointOptions(
             preset: presetN0(),
             secretKey: secretKey,
-            alpns: [ViaMacProtocol.alpn]
+            alpns: [ViaMacProtocol.alpn, ViaMacProtocol.legacyAlpn]
         ))
         self.endpoint = endpoint
         // Waits for the home relay so the QR can carry it; offline, the id alone is enough.
@@ -67,6 +67,12 @@ actor ViaMacEngine {
         try? await syncChannels[deviceID]?.write(message)
     }
 
+    /// Like `send`, but says whether the message went out.
+    func sendChecked(_ message: SyncMessage, to deviceID: String) async -> Bool {
+        guard let channel = syncChannels[deviceID] else { return false }
+        return (try? await channel.write(message)) != nil
+    }
+
     private func register(_ connection: Connection, deviceID: String) {
         connections[deviceID, default: []].append(connection)
     }
@@ -92,6 +98,21 @@ actor ViaMacEngine {
     private nonisolated func serve(_ incoming: Incoming) async {
         guard let connection = try? await incoming.accept().connect() else { return }
         let deviceID = connection.remoteId().description
+        // An iPhone with an older UniBrowser: tell it why instead of failing to decode its messages.
+        if connection.alpn() != ViaMacProtocol.alpn {
+            let message = "Обновите UniBrowser на iPhone: эта версия не умеет связываться с Mac."
+            // Its pairing screen shows a control reply's error; any other stream just ends.
+            if let stream = try? await withTimeout(10, { try await connection.acceptBi() }) {
+                let reader = StreamReader(stream.recv())
+                if (try? await reader.readByte()) == StreamKind.control.rawValue {
+                    _ = try? await reader.readToEnd(limit: ViaMacProtocol.maxControlMessage)
+                    await ControlChannel.reply(.failure(message), on: stream.send())
+                    try? await Task.sleep(for: .seconds(1)) // lets the reply arrive before the close
+                }
+            }
+            try? connection.close(errorCode: 3, reason: Data(message.utf8))
+            return
+        }
 
         if !(await host.isPaired(deviceID)) {
             guard await Self.pair(connection, deviceID: deviceID, host: host) else {
@@ -154,9 +175,9 @@ actor ViaMacEngine {
     /// The live mirror: hello and the merged answer, then changes both ways
     /// until the phone goes away.
     private nonisolated func serveSync(_ channel: SyncChannel, deviceID: String) async {
-        guard case .hello(let session, let base, let saved)? = try? await channel.next() else { return }
+        guard case .hello(let session, let base, let saved, let bookmarks)? = try? await channel.next() else { return }
         await addSync(channel, deviceID: deviceID)
-        for reply in await host.hello(session: session, base: base, savedPasswords: saved) {
+        for reply in await host.hello(session: session, base: base, savedPasswords: saved, bookmarks: bookmarks, from: deviceID) {
             try? await channel.write(reply)
         }
         await host.syncStarted(deviceID)

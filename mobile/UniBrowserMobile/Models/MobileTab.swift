@@ -55,8 +55,11 @@ final class MobileTab: Identifiable {
         webView.isInspectable = true
 
         observations = [
-            webView.observe(\.title, options: [.new]) { [weak self] view, _ in
-                MainActor.assumeIsolated { self?.title = view.title ?? "" }
+            webView.observe(\.title, options: [.new]) { [weak self, weak environment] view, _ in
+                MainActor.assumeIsolated {
+                    self?.title = view.title ?? ""
+                    if let url = view.url { environment?.store?.history?.updateTitle(url: url, title: view.title ?? "") }
+                }
             },
             webView.observe(\.url, options: [.new]) { [weak self] view, _ in
                 MainActor.assumeIsolated { if let url = view.url { self?.url = url } }

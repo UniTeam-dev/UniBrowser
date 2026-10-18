@@ -87,6 +87,7 @@ extension MobileTabController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         environment?.store?.scheduleSave()
+        if let url = webView.url { environment?.store?.history?.record(url: url, title: webView.title ?? "") }
     }
 }
 

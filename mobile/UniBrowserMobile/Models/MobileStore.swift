@@ -12,6 +12,10 @@ final class MobileStore {
     private(set) var tabs: [UUID: MobileTab]
 
     @ObservationIgnored let environment: MobileWebEnvironment
+    /// This mode's visits; nil in a mode that keeps no history (private).
+    @ObservationIgnored let history: HistoryStore?
+    /// This mode's bookmarks; the via-Mac mode's are the Mac's, synced.
+    @ObservationIgnored let bookmarks: BookmarkStore
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     /// Called with every saved session; in the via-Mac mode the link mirrors it to the Mac.
     @ObservationIgnored var onLocalChange: ((SessionSnapshot) -> Void)?
@@ -31,6 +35,9 @@ final class MobileStore {
     init(mode: BrowsingMode, environment: MobileWebEnvironment) {
         self.mode = mode
         self.environment = environment
+        history = HistoryStore(fileURL: LibraryFiles.url("history-\(mode.rawValue).sqlite"), deviceID: Self.deviceID)
+        history?.prune()
+        bookmarks = BookmarkStore(fileURL: LibraryFiles.url("bookmarks-\(mode.rawValue).json"))
         if let snapshot = Self.loadSnapshot(for: mode) {
             spaces = snapshot.spaces
             activeSpaceID = snapshot.activeSpaceID
