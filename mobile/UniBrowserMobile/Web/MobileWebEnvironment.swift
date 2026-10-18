@@ -122,7 +122,13 @@ extension MobileTabController: WKNavigationDelegate {
         Downloads.shared.track(download)
     }
 
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        // A cancelled load (a new one replaced it, or a download took over) isn't a failure.
+        if (error as NSError).code != NSURLErrorCancelled { tab?.loadFailed = true }
+    }
+
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        tab?.loadFailed = false
         tab?.permissionRequest?.cancel()
         tab?.loginOffers = []
         tab?.applyZoom(PageZoom.level(for: webView.url?.host()))

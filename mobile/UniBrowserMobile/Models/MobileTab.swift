@@ -15,6 +15,8 @@ final class MobileTab: Identifiable {
     /// The address the tab had when it was pinned; nil when not pinned.
     var pinnedURL: URL?
     var isLoading = false
+    /// The last load failed before the page showed (e.g. the Mac wasn't connected yet).
+    var loadFailed = false
     var estimatedProgress: Double = 0
     var canGoBack = false
     var canGoForward = false

@@ -211,6 +211,10 @@ final class MacRelay {
     private func linkEstablished() async {
         await refreshPath()
         await startMirror()
+        // Tabs restored at launch load before the link is up and fail; load them again now.
+        for tab in store?.tabs.values.filter(\.loadFailed) ?? [] {
+            if let url = tab.url { tab.load(url) }
+        }
         // Paths start on the relay and move to direct once hole punching succeeds.
         Task { [weak self] in
             for _ in 0..<12 {
