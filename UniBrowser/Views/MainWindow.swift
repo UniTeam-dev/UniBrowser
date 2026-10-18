@@ -34,7 +34,7 @@ struct MainWindow: View {
             ExtensionsView(manager: store.environment.extensions)
         }
         .sheet(isPresented: Bindable(model).isPasswordsVisible) {
-            PasswordsManagerView(store: model.passwords.fallback)
+            PasswordsManagerView(store: model.passwords.builtIn)
         }
         .overlay {
             if model.isTabMapVisible {

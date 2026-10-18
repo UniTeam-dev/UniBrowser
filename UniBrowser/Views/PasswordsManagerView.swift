@@ -4,6 +4,7 @@ import SwiftUI
 /// These live in the login keychain (KeychainCredentialProvider), separate from Apple Passwords.
 struct PasswordsManagerView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppModel.self) private var model
     let store: KeychainCredentialProvider
 
     @State private var items: [Credential] = []
@@ -19,6 +20,8 @@ struct PasswordsManagerView: View {
                 Button("Готово") { dismiss() }.keyboardShortcut(.defaultAction)
             }
             .padding(16)
+            Divider()
+            storagePicker
             Divider()
 
             if items.isEmpty {
@@ -54,6 +57,41 @@ struct PasswordsManagerView: View {
         }
         .sheet(isPresented: $isAdding) {
             PasswordEditor(original: nil, store: store) { reload() }
+        }
+    }
+
+    private var storagePicker: some View {
+        let passwords = model.passwords
+        return VStack(alignment: .leading, spacing: 6) {
+            Picker("Хранить пароли", selection: Bindable(passwords).storage) {
+                Text("В UniBrowser").tag(PasswordStorage.builtIn)
+                Text("В «Паролях» Apple").tag(PasswordStorage.apple)
+            }
+            .pickerStyle(.segmented)
+            // Apple can't be picked until macOS runs the helper for UniBrowser; switching back always works.
+            .disabled(!passwords.isAppleAvailable && passwords.storage == .builtIn)
+            Text(storageNote)
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+    }
+
+    private var storageNote: String {
+        let passwords = model.passwords
+        switch passwords.storage {
+        case .builtIn:
+            return passwords.isAppleAvailable
+                ? "Пароли хранятся только в UniBrowser и не видны в «Паролях» Apple."
+                : "Пароли хранятся только в UniBrowser. «Пароли» Apple станут доступны, когда Apple разрешит UniBrowser к ним подключаться."
+        case .apple:
+            if !passwords.isAppleAvailable {
+                return "macOS сейчас не даёт UniBrowser подключиться к «Паролям», поэтому пароли не подставляются и не сохраняются. Вернитесь к «В UniBrowser», чтобы пользоваться списком ниже."
+            }
+            return passwords.apple.state == .connected
+                ? "Новые пароли сохраняются и подставляются только из «Паролей» Apple. Ниже — пароли, сохранённые раньше в UniBrowser; они не используются."
+                : "Подключите «Пароли» (меню «Вкладки» → «Подключить «Пароли»…»). Пока подключения нет, пароли не подставляются и не сохраняются."
         }
     }
 

@@ -64,7 +64,7 @@ struct PasswordBar: View {
     }
 
     private var canPairApplePasswords: Bool {
-        model.passwords.apple.state == .readyToPair
+        model.passwords.storage == .apple && model.passwords.apple.state == .readyToPair
     }
 
     private func pairApplePasswords() {

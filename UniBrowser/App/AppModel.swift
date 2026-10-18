@@ -47,7 +47,7 @@ final class AppModel {
         let passwords = PasswordsService()
         self.passwords = passwords
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords))
-        viaMac.attach(store: store, passwords: passwords.fallback)
+        viaMac.attach(store: store, passwords: passwords.builtIn)
         installTabSwitcherMonitor()
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
         Task { [weak self] in

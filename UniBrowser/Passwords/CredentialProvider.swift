@@ -29,16 +29,39 @@ protocol CredentialProvider: AnyObject {
     func save(_ credential: Credential) async throws
 }
 
-/// UniBrowser's own keychain items; Apple Passwords when
-/// that bridge is connected, so logins move over once Apple allows it.
+/// Where logins live. Only one store is used at a time, so a login never ends up in both.
+enum PasswordStorage: String {
+    /// UniBrowser's own keychain items.
+    case builtIn
+    /// The Passwords app (iCloud Keychain), once Apple allowlists UniBrowser.
+    case apple
+}
+
+/// Reads and saves logins in the store the user picked. With Apple Passwords
+/// picked but not connected, nothing falls back to the built-in store.
 @MainActor
+@Observable
 final class PasswordsService: CredentialProvider {
-    let fallback = KeychainCredentialProvider()
+    let builtIn = KeychainCredentialProvider()
     let apple = ApplePasswordsProvider()
 
+    var storage: PasswordStorage {
+        didSet { UserDefaults.standard.set(storage.rawValue, forKey: Self.storageKey) }
+    }
+
+    private static let storageKey = "passwords.storage"
+
+    init() {
+        storage = UserDefaults.standard.string(forKey: Self.storageKey).flatMap(PasswordStorage.init) ?? .builtIn
+    }
+
+    /// macOS lets UniBrowser run the Passwords helper, so Apple Passwords can be picked.
+    var isAppleAvailable: Bool {
+        [.readyToPair, .awaitingPIN, .connected].contains(apple.state)
+    }
+
     private var active: CredentialProvider {
-        if apple.state == .connected { return apple }
-        return fallback
+        storage == .apple ? apple : builtIn
     }
 
     var displayName: String { active.displayName }
