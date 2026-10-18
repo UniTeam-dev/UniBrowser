@@ -468,9 +468,7 @@ final class BrowserStore {
             if isLocal, let url = URL(string: "http://\(input)") { return url }
             if input.contains("."), let url = URL(string: "https://\(input)") { return url }
         }
-        var components = URLComponents(string: "https://www.google.com/search")!
-        components.queryItems = [URLQueryItem(name: "q", value: input)]
-        return components.url
+        return SearchEngine.current.searchURL(for: input)
     }
 
     // MARK: - Sync

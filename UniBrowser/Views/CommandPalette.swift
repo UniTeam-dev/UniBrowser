@@ -5,13 +5,18 @@ struct CommandPalette: View {
     @Environment(AppModel.self) private var model
     @Environment(BrowserStore.self) private var store
     let mode: AppModel.PaletteMode
+    /// Private browsing: no search suggestions are fetched.
+    var isPrivate = false
 
     @State private var query = ""
     @State private var selection = 0
+    /// The search engine's suggestions for `query`.
+    @State private var suggestions: [String] = []
     @FocusState private var isFocused: Bool
 
     private enum Item: Identifiable {
         case open(String)
+        case suggestion(String)
         case tab(BrowserTab)
         case group(TabGroup)
         case archived(ArchivedTab)
@@ -20,6 +25,7 @@ struct CommandPalette: View {
         var id: String {
             switch self {
             case .open(let text): "open:\(text)"
+            case .suggestion(let text): "suggestion:\(text)"
             case .tab(let tab): "tab:\(tab.id)"
             case .group(let group): "group:\(group.id)"
             case .archived(let item): "archived:\(item.id)"
@@ -73,6 +79,9 @@ struct CommandPalette: View {
 
         var result: [Section] = []
         if !q.isEmpty { result.append(Section(title: "Открыть", items: [.open(query)])) }
+        if !q.isEmpty, !suggestions.isEmpty {
+            result.append(Section(title: "Поиск в \(SearchEngine.current.title)", items: suggestions.map(Item.suggestion)))
+        }
         if let storeID = CRX.storeID(from: query) {
             result.append(Section(title: "Расширения", items: [
                 .command("Установить расширение \(storeID) из Chrome Web Store", shortcut: nil) {
@@ -174,6 +183,7 @@ struct CommandPalette: View {
             DispatchQueue.main.async { isFocused = true }
         }
         .onChange(of: query) { selection = 0 }
+        .task(id: query) { suggestions = await SearchSuggestions.fetch(query, isPrivate: isPrivate) }
     }
 
     @ViewBuilder
@@ -183,6 +193,10 @@ struct CommandPalette: View {
             case .open(let text):
                 Image(systemName: "globe").frame(width: 20)
                 Text(BrowserStore.url(fromInput: text)?.host() != nil && !text.contains(" ") ? "Открыть \(text)" : "Искать «\(text)»")
+                Spacer()
+            case .suggestion(let text):
+                Image(systemName: "magnifyingglass").frame(width: 20)
+                Text(text).font(.system(size: 14)).lineLimit(1)
                 Spacer()
             case .tab(let tab):
                 Favicon(tab: tab, size: 20)
@@ -235,6 +249,9 @@ struct CommandPalette: View {
         switch items[index] {
         case .open(let text):
             store.open(input: text, inNewTab: mode == .newTab || store.selectedTab == nil)
+        case .suggestion(let text):
+            let url = SearchEngine.current.searchURL(for: text)
+            if mode != .newTab, let tab = store.selectedTab { tab.load(url) } else { store.newTab(url: url) }
         case .tab(let tab):
             store.select(tab.id)
         case .group(let group):
@@ -254,6 +271,8 @@ struct CommandPalette: View {
         switch items[index] {
         case .open(let text):
             if let url = BrowserStore.url(fromInput: text) { model.openPeek(url) }
+        case .suggestion(let text):
+            model.openPeek(SearchEngine.current.searchURL(for: text))
         case .tab(let tab):
             if let url = tab.url { model.openPeek(url, sourceTabID: tab.id) }
         case .archived(let item):
@@ -271,6 +290,8 @@ struct CommandPalette: View {
         switch items[index] {
         case .open(let text):
             if let url = BrowserStore.url(fromInput: text) { store.openSplit(with: store.newTab(url: url, select: false).id) }
+        case .suggestion(let text):
+            store.openSplit(with: store.newTab(url: SearchEngine.current.searchURL(for: text), select: false).id)
         case .tab(let tab):
             store.openSplit(with: tab.id)
         case .archived(let item):

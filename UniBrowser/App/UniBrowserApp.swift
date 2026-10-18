@@ -36,14 +36,8 @@ struct UniBrowserApp: App {
         .windowResizability(.contentSize)
 
         Settings {
-            Form {
-                Picker("Оформление", selection: $appearance) {
-                    ForEach(Appearance.allCases, id: \.self) { Text($0.title) }
-                }
-                .pickerStyle(.segmented)
-            }
-            .padding(20)
-            .frame(width: 360)
+            SettingsView()
+                .environment(model)
         }
     }
 }

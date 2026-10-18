@@ -39,6 +39,8 @@ targets:
       - path: ../Shared/Basics
       # Site permissions, ad blocking (with its bundled lists) and «О сайте»:
       - path: ../Shared/Site
+      # Search engines and suggestions, reader mode (Readability.js):
+      - path: ../Shared/Convenience
     dependencies:
       - package: IrohLib
     settings:

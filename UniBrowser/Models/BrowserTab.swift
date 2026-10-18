@@ -20,6 +20,12 @@ final class BrowserTab: Identifiable {
     var canGoForward = false
     var lastActivated: Date
     var isPlayingAudio = false
+    /// Muted from the tab row; kept while the tab sleeps and applied when it wakes.
+    var isMuted = false
+    /// Readability thinks the page is an article: the address strip shows the reader button.
+    var isReadable = false
+    /// The article shown in reader mode; nil shows the page.
+    var reader: ReaderArticle?
     /// Saved logins for this page's site, shown as a bar above the page.
     var loginOffers: [Credential] = []
     /// A login the user just submitted that is not saved yet.
@@ -49,6 +55,7 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private(set) var hostView: NSView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var controller: TabWebController?
+    @ObservationIgnored private var audioObserver: NSObject?
 
     /// Mirrors `webView == nil` so views redraw when a tab sleeps or wakes.
     private(set) var isAsleep = true
@@ -104,9 +111,9 @@ final class BrowserTab: Identifiable {
             webView.observe(\.canGoForward, options: [.new]) { [weak self] view, _ in
                 MainActor.assumeIsolated { self?.canGoForward = view.canGoForward }
             },
-            // ponytail: WebKit has no KVO for playback, so isPlayingAudio stays false;
-            // poll requestMediaPlaybackState() if the speaker icon is needed.
         ]
+        audioObserver = TabAudio.observe(webView) { [weak self] in self?.isPlayingAudio = $0 }
+        if isMuted { TabAudio.setMuted(true, webView) }
 
         let hostView = NSView()
         webView.frame = hostView.bounds
@@ -127,6 +134,7 @@ final class BrowserTab: Identifiable {
         permissionRequest?.cancel()
         permissionRequest = nil
         observations.removeAll()
+        audioObserver = nil
         devTools?.close()
         devTools = nil
         webView?.stopLoading()
@@ -137,6 +145,13 @@ final class BrowserTab: Identifiable {
         isAsleep = true
         isLoading = false
         isPlayingAudio = false
+        isReadable = false
+        reader = nil
+    }
+
+    func setMuted(_ muted: Bool) {
+        isMuted = muted
+        if let webView { TabAudio.setMuted(muted, webView) }
     }
 
     func fill(_ credential: Credential) {
