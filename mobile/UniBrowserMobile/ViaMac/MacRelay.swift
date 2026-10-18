@@ -56,6 +56,7 @@ final class MacRelay {
     @ObservationIgnored private var base: SessionSnapshot?
     @ObservationIgnored private var lastMirrored: SessionSnapshot?
     @ObservationIgnored private var historyPump: Task<Void, Never>?
+    @ObservationIgnored private var proxyChange: Task<Void, Never>?
 
     private enum Keys {
         static let mac = "viaMac.pairedMac"
@@ -65,14 +66,6 @@ final class MacRelay {
         pairedMac = UserDefaults.standard.data(forKey: Keys.mac)
             .flatMap { try? JSONDecoder().decode(PairedMac.self, from: $0) }
         base = Self.loadBase()
-        let client = self.client
-        Task {
-            do {
-                try await client.startLocalProxy(port: Self.localProxyPort)
-            } catch {
-                self.lastError = "Не удалось открыть локальный порт: \(error.localizedDescription)"
-            }
-        }
     }
 
     /// Called once from AppModel with the via-Mac mode's tabs and the phone's logins.
@@ -148,11 +141,13 @@ final class MacRelay {
     /// re-established whenever the app becomes active.
     func appBecameActive() {
         isActive = true
+        setLocalProxy(open: true)
         startLink()
     }
 
     func appWentToBackground() {
         isActive = false
+        setLocalProxy(open: false)
         linkTask?.cancel()
         linkTask = nil
         Task {
@@ -167,6 +162,23 @@ final class MacRelay {
         linkTask?.cancel()
         linkTask = nil
         startLink()
+    }
+
+    /// Opens or closes the loopback SOCKS port, in call order. iOS defuncts the
+    /// listener of a suspended app; a port kept from before would leave every
+    /// page hanging after the return while the link shows as connected.
+    private func setLocalProxy(open: Bool) {
+        let previous = proxyChange
+        let client = self.client
+        proxyChange = Task {
+            await previous?.value
+            guard open else { return await client.stopLocalProxy() }
+            do {
+                try await client.startLocalProxy(port: Self.localProxyPort)
+            } catch {
+                lastError = "Не удалось открыть локальный порт: \(error.localizedDescription)"
+            }
+        }
     }
 
     private func startLink() {
