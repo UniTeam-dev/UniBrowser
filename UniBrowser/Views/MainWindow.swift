@@ -106,6 +106,7 @@ struct AddressStrip: View {
                 iconButton(tab.reader == nil ? "doc.plaintext" : "doc.plaintext.fill", label: "Режим чтения") { toggleReader(tab) }
             }
             if let url = tab?.url {
+                BookmarkStar(url: url)
                 iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }
             }
             if model.isPrivate {

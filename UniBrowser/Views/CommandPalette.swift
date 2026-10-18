@@ -20,6 +20,8 @@ struct CommandPalette: View {
         case tab(BrowserTab)
         case group(TabGroup)
         case archived(ArchivedTab)
+        case bookmark(Bookmark)
+        case visit(Visit)
         case command(String, shortcut: String?, action: @MainActor () -> Void)
 
         var id: String {
@@ -29,6 +31,8 @@ struct CommandPalette: View {
             case .tab(let tab): "tab:\(tab.id)"
             case .group(let group): "group:\(group.id)"
             case .archived(let item): "archived:\(item.id)"
+            case .bookmark(let item): "bookmark:\(item.id)"
+            case .visit(let visit): "visit:\(visit.id)"
             case .command(let title, _, _): "cmd:\(title)"
             }
         }
@@ -91,7 +95,13 @@ struct CommandPalette: View {
                 },
             ]))
         }
-        if !tabs.isEmpty { result.append(Section(title: "Открытые вкладки", items: tabs.prefix(8).map(Item.tab))) }
+        if !tabs.isEmpty { result.append(Section(title: "Вкладки", items: tabs.prefix(q.isEmpty ? 8 : 5).map(Item.tab))) }
+        if !q.isEmpty {
+            let bookmarks = model.bookmarks.search(query).prefix(5).map(Item.bookmark)
+            if !bookmarks.isEmpty { result.append(Section(title: "Закладки", items: bookmarks)) }
+            let visits = model.history.search(query, limit: 5).map(Item.visit)
+            if !visits.isEmpty { result.append(Section(title: "История", items: visits)) }
+        }
         if !groups.isEmpty { result.append(Section(title: "Группы", items: groups.map(Item.group))) }
         if !archived.isEmpty { result.append(Section(title: "Из архива", items: archived.prefix(5).map(Item.archived))) }
         if !commands.isEmpty { result.append(Section(title: "Команды", items: commands)) }
@@ -224,6 +234,16 @@ struct CommandPalette: View {
                 }
                 Spacer()
                 Text(isSelected ? "Вернуть ↵" : "Вернуть").font(.system(size: 12)).opacity(isSelected ? 1 : 0.75)
+            case .bookmark(let item):
+                Favicon(url: item.url, size: 20)
+                pageText(item.title, item.url)
+                Spacer()
+                Image(systemName: "star.fill").font(.system(size: 11)).opacity(0.75)
+            case .visit(let visit):
+                Favicon(url: visit.url, size: 20)
+                pageText(visit.title, visit.url)
+                Spacer()
+                Image(systemName: "clock").font(.system(size: 11)).opacity(0.75)
             case .command(let title, let shortcut, _):
                 Image(systemName: "arrow.right.to.line").frame(width: 20)
                 Text(title).font(.system(size: 14))
@@ -235,6 +255,22 @@ struct CommandPalette: View {
         .padding(.horizontal, 10).padding(.vertical, 9)
         .background(isSelected ? Palette.accent : .clear, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
+    }
+
+    private func pageText(_ title: String, _ url: URL?) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title.isEmpty ? url?.absoluteString ?? "" : title).font(.system(size: 14)).lineLimit(1)
+            Text(url?.host() ?? "").font(.system(size: 12)).opacity(0.75).lineLimit(1)
+        }
+    }
+
+    /// The page behind a bookmark or history row.
+    private func url(of item: Item) -> URL? {
+        switch item {
+        case .bookmark(let bookmark): bookmark.url
+        case .visit(let visit): visit.url
+        default: nil
+        }
     }
 
     private func move(_ step: Int) {
@@ -258,6 +294,8 @@ struct CommandPalette: View {
             if let first = group.tabIDs.first { store.select(first) } else { store.toggleGroup(group.id) }
         case .archived(let item):
             store.restore(item.id)
+        case .bookmark, .visit:
+            if let url = url(of: items[index]) { store.openFromLibrary(url, newTab: mode == .newTab) }
         case .command(_, _, let action):
             action()
         }
@@ -277,6 +315,8 @@ struct CommandPalette: View {
             if let url = tab.url { model.openPeek(url, sourceTabID: tab.id) }
         case .archived(let item):
             if let url = item.url { model.openPeek(url) }
+        case .bookmark, .visit:
+            if let url = url(of: items[index]) { model.openPeek(url) }
         case .group, .command:
             return
         }
@@ -297,6 +337,8 @@ struct CommandPalette: View {
         case .archived(let item):
             store.openSplit(with: store.newTab(url: item.url, select: false).id)
             store.deleteArchived(item.id)
+        case .bookmark, .visit:
+            if let url = url(of: items[index]) { store.openSplit(with: store.newTab(url: url, select: false).id) }
         case .group, .command:
             return
         }

@@ -28,6 +28,8 @@ final class AppModel {
     var isPasswordsVisible = false
     /// «Файл → Импорт…»; also offered once on the first launch.
     var isImportVisible = false
+    /// The ☆ / ⌘D bookmark editor in the address strip.
+    var isBookmarkPopoverVisible = false
     /// The page shown over the window by ⌥+click or ⌥↵; nil when Peek is closed.
     var peek: PeekPage?
     var isTabMapVisible = false

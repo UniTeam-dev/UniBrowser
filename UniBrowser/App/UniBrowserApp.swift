@@ -18,7 +18,10 @@ struct UniBrowserApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
-        .commands { BrowserCommands(main: model) }
+        .commands {
+            BrowserCommands(main: model)
+            LibraryCommands(model: model)
+        }
 
         // ⇧⌘N. Never restored at launch: nothing of a private window outlives it.
         WindowGroup("Приватное окно", id: "private") {
@@ -28,6 +31,18 @@ struct UniBrowserApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .restorationBehavior(.disabled)
+
+        Window("История", id: "history") {
+            HistoryWindow()
+                .environment(model)
+                .environment(model.store)
+        }
+
+        Window("Закладки", id: "bookmarks") {
+            BookmarksWindow()
+                .environment(model)
+                .environment(model.store)
+        }
 
         Window("iPhone", id: "iphone") {
             ViaMacWindow()

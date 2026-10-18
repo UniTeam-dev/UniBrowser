@@ -119,7 +119,9 @@ struct BrowserCommands: Commands {
         }
 
         CommandMenu("История") {
-            // — Недавно закрытые (part D). History items (part B) go in their own section. —
+            Button("Показать всю историю") { openWindow(id: "history") }
+                .keyboardShortcut("y")
+            Divider()
             Button("Открыть закрытую вкладку") {
                 if let last = model.store.lastClosed { model.store.reopenClosed(last.id) }
             }
