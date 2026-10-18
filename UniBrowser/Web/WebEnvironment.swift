@@ -9,7 +9,10 @@ final class WebEnvironment {
     /// A private window: cookies and storage in memory only, no session file, not mirrored
     /// to the iPhone. History recording must check this and record nothing.
     let isPrivate: Bool
+    /// The common store: spaces without «Отдельные входы» and private windows.
     let dataStore: WKWebsiteDataStore
+    /// Stores of spaces with separate logins, by store id; one object per store.
+    private var separateStores: [UUID: WKWebsiteDataStore] = [:]
     let passwords: CredentialProvider
     let extensions: ExtensionManager
     /// Where finished page loads are recorded; nil records nothing (a private window).
@@ -28,8 +31,49 @@ final class WebEnvironment {
         ContentBlocker.shared.prepare()
     }
 
-    /// Shared cookies and user agent, no tab scripts: what Peek's temporary page uses.
-    func makeBaseConfiguration() -> WKWebViewConfiguration {
+    /// The cookies and site data a page in `spaceID` uses: the space's own store when it
+    /// keeps separate logins, else the common one.
+    func dataStore(forSpace spaceID: UUID?) -> WKWebsiteDataStore {
+        guard !isPrivate, let space = store?.spaces.first(where: { $0.id == spaceID }), space.separateLogins == true
+        else { return dataStore }
+        let id = Space.loginStoreID(space.id, mode: "mac")
+        if let existing = separateStores[id] { return existing }
+        let new = WKWebsiteDataStore(forIdentifier: id)
+        separateStores[id] = new
+        return new
+    }
+
+    func dataStore(forTab tabID: UUID) -> WKWebsiteDataStore {
+        dataStore(forSpace: store?.spaces.first { $0.allTabIDs.contains(tabID) }?.id)
+    }
+
+    /// Deletes a deleted space's own cookies and site data. Its tabs must be asleep by now.
+    func removeSeparateStore(of spaceID: UUID) {
+        guard !isPrivate else { return }
+        let id = Space.loginStoreID(spaceID, mode: "mac")
+        separateStores[id] = nil
+        Task {
+            // Retried: WebKit refuses while a just-closed web view still holds the store.
+            for attempt in 1...5 {
+                do { return try await WKWebsiteDataStore.remove(forIdentifier: id) } catch {
+                    if attempt == 5 { print("UniBrowser: space store not removed: \(error)") }
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
+        }
+    }
+
+    /// Settings «Удалить cookies и кэш»: the common store and every space's own.
+    func eraseAllWebsiteData() async {
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        await dataStore.removeData(ofTypes: types, modifiedSince: .distantPast)
+        for id in await WKWebsiteDataStore.allDataStoreIdentifiers {
+            await (separateStores[id] ?? WKWebsiteDataStore(forIdentifier: id)).removeData(ofTypes: types, modifiedSince: .distantPast)
+        }
+    }
+
+    /// User agent and inspector, no tab scripts: what Peek's temporary page uses.
+    func makeBaseConfiguration(dataStore: WKWebsiteDataStore) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore
         configuration.preferences.isElementFullscreenEnabled = true
@@ -38,8 +82,8 @@ final class WebEnvironment {
         return configuration
     }
 
-    func makeConfiguration(for controller: TabWebController, devTools: DevToolsSession) -> WKWebViewConfiguration {
-        let configuration = makeBaseConfiguration()
+    func makeConfiguration(for controller: TabWebController, devTools: DevToolsSession, dataStore: WKWebsiteDataStore) -> WKWebViewConfiguration {
+        let configuration = makeBaseConfiguration(dataStore: dataStore)
         // Lets installed extensions inject content scripts into tabs.
         configuration.webExtensionController = extensions.controller
 

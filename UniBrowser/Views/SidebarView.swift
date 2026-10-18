@@ -213,6 +213,15 @@ struct SpaceRail: View {
                         .disabled(index == 0)
                     Button("Переместить ниже") { store.moveSpace(space.id, to: index + 1) }
                         .disabled(index == store.spaces.count - 1)
+                    if !store.environment.isPrivate {
+                        Divider()
+                        Toggle("Отдельные входы", isOn: Binding(get: { space.separateLogins == true },
+                                                               set: { store.setSeparateLogins(space.id, $0) }))
+                        Text("Свои cookie и данные сайтов; пароли и история общие. Открытые страницы перезагрузятся.")
+                        Divider()
+                        Button("Удалить пространство…") { confirmDelete(space) }
+                            .disabled(store.spaces.count < 2)
+                    }
                 }
             }
             Button { store.newSpace(named: "Пространство \(store.spaces.count + 1)") } label: {
@@ -227,6 +236,17 @@ struct SpaceRail: View {
             .accessibilityLabel("Новое пространство")
         }
         .frame(width: 32)
+    }
+
+    private func confirmDelete(_ space: Space) {
+        let alert = NSAlert()
+        alert.messageText = "Удалить пространство «\(space.name)»?"
+        alert.informativeText = space.separateLogins == true
+            ? "Вкладки уйдут в архив. Входы на сайтах этого пространства, его cookie и данные сайтов будут удалены."
+            : "Вкладки уйдут в архив."
+        alert.addButton(withTitle: "Удалить").hasDestructiveAction = true
+        alert.addButton(withTitle: "Отмена")
+        if alert.runModal() == .alertFirstButtonReturn { store.deleteSpace(space.id) }
     }
 
     private func pickImage(for spaceID: UUID) {

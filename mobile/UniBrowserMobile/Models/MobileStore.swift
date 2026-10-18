@@ -44,7 +44,9 @@ final class MobileStore {
             ? FileManager.default.temporaryDirectory.appending(path: "bookmarks-private-\(UUID().uuidString).json")
             : LibraryFiles.url("bookmarks-\(mode.rawValue).json"))
         if mode != .private, let snapshot = Self.loadSnapshot(for: mode) {
-            spaces = snapshot.spaces
+            var loaded = snapshot.spaces
+            Space.migrateSeparateLogins(&loaded)
+            spaces = loaded
             activeSpaceID = snapshot.activeSpaceID
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
                 ($0.id, MobileTab(id: $0.id, url: $0.url, title: $0.title, customTitle: $0.customTitle, pinnedURL: $0.pinnedURL, lastActivated: $0.lastActivated))
@@ -58,10 +60,10 @@ final class MobileStore {
             var rest: [Space] = []
             switch mode {
             case .direct:
-                first = Space(name: "Работа", colorHex: Palette.spaceColors[0])
+                first = Space(name: "Работа", colorHex: Palette.spaceColors[0], separateLogins: false)
                 rest = [Space(name: "Личное", colorHex: Palette.spaceColors[1])]
             case .viaMac:
-                first = Space(name: "Через Mac", colorHex: Palette.spaceColors[3])
+                first = Space(name: "Через Mac", colorHex: Palette.spaceColors[3], separateLogins: false)
             case .private:
                 first = Space(name: "Приватный", colorHex: Palette.spaceColors[3])
             }
@@ -291,6 +293,53 @@ final class MobileStore {
         scheduleSave()
     }
 
+    // MARK: - Separate logins
+
+    /// «Отдельные входы». Turning it off keeps the space's own store, so turning it back on
+    /// restores those logins. The page on screen reloads with the other store.
+    func setSeparateLogins(_ spaceID: UUID, _ isOn: Bool) {
+        guard let i = spaces.firstIndex(where: { $0.id == spaceID }) else { return }
+        spaces[i].separateLogins = isOn
+        refreshDataStores()
+        scheduleSave()
+    }
+
+    /// Takes the tab out of its space and puts it under "Сегодня" of `spaceID`.
+    func moveTab(_ tabID: UUID, toSpace spaceID: UUID) {
+        guard let to = spaces.firstIndex(where: { $0.id == spaceID }), tabs[tabID] != nil,
+              !spaces[to].allTabIDs.contains(tabID) else { return }
+        tabs[tabID]?.pinnedURL = nil
+        for index in spaces.indices {
+            spaces[index].pinnedTabIDs.removeAll { $0 == tabID }
+            spaces[index].looseTabIDs.removeAll { $0 == tabID }
+            for g in spaces[index].groups.indices { spaces[index].groups[g].tabIDs.removeAll { $0 == tabID } }
+            if spaces[index].selectedTabID == tabID { spaces[index].selectedTabID = nil }
+        }
+        spaces[to].looseTabIDs.append(tabID)
+        // Only the tab on screen holds a page, and it just left this space.
+        tabs[tabID]?.sleep()
+        scheduleSave()
+    }
+
+    /// Closes the space's tabs and deletes its own cookies and site data. The last space stays.
+    func deleteSpace(_ spaceID: UUID) {
+        guard spaces.count > 1, let space = spaces.first(where: { $0.id == spaceID }) else { return }
+        for id in space.allTabIDs { closeTab(id) }
+        spaces.removeAll { $0.id == spaceID }
+        if activeSpaceID == spaceID { activeSpaceID = spaces[0].id }
+        environment.removeSeparateStore(of: spaceID)
+        scheduleSave()
+    }
+
+    /// Puts to sleep a live page whose space now uses another store; the page view wakes
+    /// it again at once, reloading with the right store.
+    private func refreshDataStores() {
+        for tab in tabs.values {
+            guard let current = tab.webView?.configuration.websiteDataStore else { continue }
+            if current.identifier != environment.dataStore(forTab: tab.id).identifier { tab.sleep() }
+        }
+    }
+
     // MARK: - Helpers
 
     private func mutateActiveSpace(_ change: (inout Space) -> Void) {
@@ -371,6 +420,7 @@ final class MobileStore {
             var space = space
             // Split View is a Mac thing; the phone shows one page.
             if let mine = local[space.id] {
+                if space.separateLogins == nil { space.separateLogins = mine.separateLogins }
                 if let selected = mine.selectedTabID, space.allTabIDs.contains(selected) { space.selectedTabID = selected }
                 for g in space.groups.indices {
                     if let group = mine.groups.first(where: { $0.id == space.groups[g].id }) {
@@ -381,9 +431,13 @@ final class MobileStore {
             return space
         }
         if spaces.isEmpty {
-            let first = Space(name: "Через Mac", colorHex: Palette.spaceColors[3])
+            let first = Space(name: "Через Mac", colorHex: Palette.spaceColors[3], separateLogins: false)
             spaces = [first]
         }
+        Space.migrateSeparateLogins(&spaces)
+        // A space deleted on the Mac takes its own store on this phone with it.
+        for id in local.keys where !spaces.contains(where: { $0.id == id }) { environment.removeSeparateStore(of: id) }
+        refreshDataStores()
         if !spaces.contains(where: { $0.id == activeSpaceID }) {
             activeSpaceID = spaces.contains { $0.id == remote.activeSpaceID } ? remote.activeSpaceID : spaces[0].id
         }

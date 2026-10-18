@@ -39,7 +39,9 @@ final class BrowserStore {
             tabs = [:]
             archive = []
         } else if let snapshot = Self.loadSnapshot() {
-            spaces = snapshot.spaces
+            var loaded = snapshot.spaces
+            Space.migrateSeparateLogins(&loaded)
+            spaces = loaded
             activeSpaceID = snapshot.activeSpaceID
             archive = snapshot.archive ?? []
             tabs = Dictionary(uniqueKeysWithValues: snapshot.tabs.map {
@@ -48,7 +50,7 @@ final class BrowserStore {
             // Tabs pinned before the pin address was kept start from where they are now.
             for id in spaces.flatMap(\.pinnedTabIDs) where tabs[id]?.pinnedURL == nil { tabs[id]?.pinnedURL = tabs[id]?.url }
         } else {
-            let work = Space(name: "Работа", colorHex: Palette.spaceColors[0])
+            let work = Space(name: "Работа", colorHex: Palette.spaceColors[0], separateLogins: false)
             spaces = [work, Space(name: "Личное", colorHex: Palette.spaceColors[1])]
             activeSpaceID = work.id
             tabs = [:]
@@ -447,6 +449,53 @@ final class BrowserStore {
         scheduleSave()
     }
 
+    // MARK: - Separate logins
+
+    /// «Отдельные входы». Turning it off keeps the space's own store, so turning it back on
+    /// restores those logins. The space's open pages reload with the other store.
+    func setSeparateLogins(_ spaceID: UUID, _ isOn: Bool) {
+        guard let i = spaces.firstIndex(where: { $0.id == spaceID }) else { return }
+        spaces[i].separateLogins = isOn
+        refreshDataStores()
+        scheduleSave()
+    }
+
+    /// Takes the tab out of its space and puts it under "Сегодня" of `spaceID`.
+    func moveTab(_ tabID: UUID, toSpace spaceID: UUID) {
+        guard let to = spaces.firstIndex(where: { $0.id == spaceID }), tabs[tabID] != nil,
+              !spaces[to].allTabIDs.contains(tabID) else { return }
+        tabs[tabID]?.pinnedURL = nil
+        for index in spaces.indices {
+            spaces[index].pinnedTabIDs.removeAll { $0 == tabID }
+            spaces[index].looseTabIDs.removeAll { $0 == tabID }
+            for g in spaces[index].groups.indices { spaces[index].groups[g].tabIDs.removeAll { $0 == tabID } }
+            if spaces[index].selectedTabID == tabID { spaces[index].selectedTabID = nil }
+            if spaces[index].split?.contains(tabID) == true { spaces[index].split = nil }
+        }
+        spaces[to].looseTabIDs.append(tabID)
+        refreshDataStores()
+        scheduleSave()
+    }
+
+    /// Archives the space's tabs and deletes its own cookies and site data. The last space stays.
+    func deleteSpace(_ spaceID: UUID) {
+        guard spaces.count > 1, let space = spaces.first(where: { $0.id == spaceID }) else { return }
+        for id in space.allTabIDs { archiveTab(id) }
+        spaces.removeAll { $0.id == spaceID }
+        if activeSpaceID == spaceID { activeSpaceID = spaces[0].id }
+        environment.removeSeparateStore(of: spaceID)
+        scheduleSave()
+    }
+
+    /// Puts to sleep every live page whose space now uses another store; the one on
+    /// screen wakes again at once (WebViewContainer), reloading with the right store.
+    private func refreshDataStores() {
+        for tab in tabs.values {
+            guard let current = tab.webView?.configuration.websiteDataStore else { continue }
+            if current.identifier != environment.dataStore(forTab: tab.id).identifier { tab.sleep() }
+        }
+    }
+
     // MARK: - Helpers
 
     private func mutateActiveSpace(_ change: (inout Space) -> Void) {
@@ -532,6 +581,7 @@ final class BrowserStore {
             if let mine = local[space.id] {
                 // An older peer drops fields it doesn't know: absent never clears what is here.
                 if space.imageData == nil { space.imageData = mine.imageData }
+                if space.separateLogins == nil { space.separateLogins = mine.separateLogins }
                 if space.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { space.name = mine.name }
                 if let selected = mine.selectedTabID, space.allTabIDs.contains(selected) { space.selectedTabID = selected }
                 if let split = mine.split, space.allTabIDs.contains(split.left), space.allTabIDs.contains(split.right) {
@@ -549,11 +599,15 @@ final class BrowserStore {
             }
             return space
         }
+        Space.migrateSeparateLogins(&spaces)
+        // A space deleted on the iPhone takes its own store with it here too.
+        for id in local.keys where !spaces.contains(where: { $0.id == id }) { environment.removeSeparateStore(of: id) }
+        refreshDataStores()
         if !spaces.contains(where: { $0.id == activeSpaceID }) {
             activeSpaceID = spaces.first?.id ?? activeSpaceID
         }
         if spaces.isEmpty {
-            let work = Space(name: "Работа", colorHex: Palette.spaceColors[0])
+            let work = Space(name: "Работа", colorHex: Palette.spaceColors[0], separateLogins: false)
             spaces = [work]
             activeSpaceID = work.id
         }

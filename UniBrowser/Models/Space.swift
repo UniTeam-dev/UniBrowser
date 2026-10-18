@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 
@@ -26,12 +27,29 @@ struct Space: Identifiable, Codable, Hashable {
     var selectedTabID: UUID?
     /// Two tabs shown side by side; nil when the space has no split.
     var split: SplitPair?
+    /// «Отдельные входы»: the space keeps its own cookies and site data. Nil in sessions
+    /// saved before the setting existed, until `migrateSeparateLogins` fills it in.
+    var separateLogins: Bool? = true
 
     var allTabIDs: [UUID] {
         pinnedTabIDs + groups.flatMap(\.tabIDs) + looseTabIDs
     }
 
     var color: Color { Color(hex: colorHex) }
+
+    /// The WKWebsiteDataStore identifier of a space with separate logins: SHA-256 of
+    /// "<space id>|<mode>" with its halves XORed. `mode` is "mac" on the Mac and the
+    /// browsing mode on the iPhone, so the phone's two modes never share a store.
+    static func loginStoreID(_ spaceID: UUID, mode: String) -> UUID {
+        let digest = Array(SHA256.hash(data: Data("\(spaceID.uuidString)|\(mode)".utf8)))
+        return NSUUID(uuidBytes: (0..<16).map { digest[$0] ^ digest[$0 + 16] }) as UUID
+    }
+
+    /// Sessions from before «Отдельные входы»: the first space keeps the current logins
+    /// (shared), every other space gets its own.
+    static func migrateSeparateLogins(_ spaces: inout [Space]) {
+        for i in spaces.indices where spaces[i].separateLogins == nil { spaces[i].separateLogins = i > 0 }
+    }
 }
 
 /// Split View: `left` and `right` tab IDs and the left pane's share of the width.
