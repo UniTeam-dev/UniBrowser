@@ -8,6 +8,8 @@ actor ViaMacEngine {
     struct Address: Sendable {
         var id: String
         var relayURL: String?
+        /// The UDP port of the IPv4 socket: the one asked for, or a random one if that was taken.
+        var port: UInt16
     }
 
     private let host: ViaMacHost
@@ -20,12 +22,26 @@ actor ViaMacEngine {
         self.host = host
     }
 
-    func start(secretKey: Data) async throws -> Address {
-        let endpoint = try await Endpoint.bind(options: EndpointOptions(
-            preset: presetN0(),
-            secretKey: secretKey,
-            alpns: [ViaMacProtocol.alpn, ViaMacProtocol.legacyAlpn]
-        ))
+    /// Binds IPv4 on `port` so a router can forward it here (iroh's IPv6 socket keeps a
+    /// random port: a bind address replaces only the default of its own family).
+    /// `relay` is the user's own relay server; nil keeps n0's.
+    func start(secretKey: Data, port: UInt16, relay: String?) async throws -> Address {
+        func bind(_ port: UInt16) async throws -> Endpoint {
+            try await Endpoint.bind(options: EndpointOptions(
+                preset: presetN0(),
+                bindAddr: "0.0.0.0:\(port)",
+                secretKey: secretKey,
+                alpns: [ViaMacProtocol.alpn, ViaMacProtocol.legacyAlpn],
+                relayMode: try relay.map { try RelayMode.customFromUrls(urls: [$0]) }
+            ))
+        }
+        let endpoint: Endpoint
+        do {
+            endpoint = try await bind(port)
+        } catch {
+            // Usually the port is taken: the link still works, only a port forward doesn't.
+            endpoint = try await bind(0)
+        }
         self.endpoint = endpoint
         // Waits for the home relay so the QR can carry it; offline, the id alone is enough.
         _ = try? await withTimeout(10) { await endpoint.online() }
@@ -35,7 +51,9 @@ actor ViaMacEngine {
                 Task.detached { await self?.serve(incoming) }
             }
         }
-        return Address(id: endpoint.id().description, relayURL: endpoint.addr().relayUrl())
+        let ipv4 = endpoint.boundSockets().first { $0.hasPrefix("0.0.0.0:") }
+        return Address(id: endpoint.id().description, relayURL: endpoint.addr().relayUrl(),
+                       port: ipv4.flatMap { UInt16($0.dropFirst("0.0.0.0:".count)) } ?? port)
     }
 
     func stop() async {
@@ -152,8 +170,7 @@ actor ViaMacEngine {
             await ControlChannel.reply(.failure("Код устарел или уже использован. Покажите на Mac новый."), on: stream.send())
             return false
         }
-        await ControlChannel.reply(ControlResponse(ok: true, macName: await host.macName, addresses: await directAddresses()),
-                                   on: stream.send())
+        await ControlChannel.reply(await linkInfo(), on: stream.send())
         return true
     }
 
@@ -167,7 +184,7 @@ actor ViaMacEngine {
             let response: ControlResponse
             if let body = try? await reader.readToEnd(limit: ViaMacProtocol.maxControlMessage),
                let request = try? JSONDecoder().decode(ControlRequest.self, from: body) {
-                response = await answer(request)
+                response = await answer(request, from: deviceID)
             } else {
                 response = .failure("Непонятный запрос.")
             }
@@ -196,11 +213,20 @@ actor ViaMacEngine {
         }
     }
 
-    private func answer(_ request: ControlRequest) async -> ControlResponse {
+    /// How to reach this Mac; the phone refreshes it from every answer.
+    private func linkInfo() async -> ControlResponse {
+        ControlResponse(ok: true, macName: await host.macName, addresses: directAddresses(),
+                        relayURL: endpoint?.addr().relayUrl(), externalAddress: await host.externalAddressForPhones ?? "")
+    }
+
+    private func answer(_ request: ControlRequest, from deviceID: String) async -> ControlResponse {
         switch request {
-        case .pair, .ping:
-            // Already paired: the phone is re-confirming or checking the link.
-            return ControlResponse(ok: true, macName: await host.macName, addresses: directAddresses())
+        case .ping(let path):
+            if let path { await host.linkPathReported(path, by: deviceID) }
+            return await linkInfo()
+        case .pair:
+            // Already paired: the phone is re-confirming the link.
+            return await linkInfo()
         case .open(let url):
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
                 return .failure("Можно открыть только веб-страницу.")

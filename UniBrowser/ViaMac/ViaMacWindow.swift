@@ -27,6 +27,8 @@ struct ViaMacWindow: View {
                 }
             }
 
+            ViaMacConnectionSection()
+
             Section("Сопряжённые iPhone") {
                 if host.pairedDevices.isEmpty {
                     Text("Пока нет").foregroundStyle(.secondary)
@@ -54,8 +56,9 @@ struct ViaMacWindow: View {
     }
 
     private func deviceState(_ device: ViaMacHost.PairedDevice) -> String {
-        if host.syncingDeviceIDs.contains(device.id) { return "Подключён, вкладки синхронизируются" }
-        if host.connectedDeviceIDs.contains(device.id) { return "Подключён" }
+        let path = host.linkPaths[device.id].map { " · \($0.title.lowercased())" } ?? ""
+        if host.syncingDeviceIDs.contains(device.id) { return "Подключён, вкладки синхронизируются" + path }
+        if host.connectedDeviceIDs.contains(device.id) { return "Подключён" + path }
         return "Не в сети"
     }
 
@@ -66,6 +69,65 @@ struct ViaMacWindow: View {
         case .ready: host.connectedDeviceIDs.isEmpty ? "Готов, iPhone не подключён" : "iPhone подключён"
         case .failed(let message): "Ошибка: \(message)"
         }
+    }
+}
+
+/// How a phone outside the home network reaches this Mac: the port to forward on the
+/// router, the external address and the user's own relay. In the iPhone window and in
+/// Settings → iPhone. Fields apply on Return or when the view goes away.
+struct ViaMacConnectionSection: View {
+    @Environment(ViaMacHost.self) private var host
+    @State private var port = ""
+    @State private var external = ""
+    @State private var relay = ""
+
+    var body: some View {
+        Section {
+            LabeledContent("Адрес Mac в локальной сети", value: host.lanAddress ?? "—")
+            LabeledContent("Порт для проброса") {
+                HStack {
+                    TextField("", text: $port, prompt: Text(String(ViaMacAddress.defaultPort)))
+                        .frame(width: 70)
+                        .onSubmit(apply)
+                    Text("UDP").foregroundStyle(.secondary)
+                }
+            }
+            if let bound = host.boundPort, bound != UInt16(clamping: host.port) {
+                Text("Порт \(String(host.port)) занят, связь работает на случайном порту \(String(bound)): проброс на роутере не сработает. Выберите другой порт.")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            TextField("Внешний адрес", text: $external, prompt: Text("IP или имя, например home.example.net"))
+                .onSubmit(apply)
+            if !external.isEmpty, ViaMacAddress.parse(external, defaultPort: 1) == nil {
+                Text("Нужен IP-адрес или имя, при желании с портом: 203.0.113.7:47802").font(.caption).foregroundStyle(.red)
+            }
+            TextField("Свой сервер связи", text: $relay, prompt: Text("https://relay.example.ru — пусто: серверы iroh"))
+                .onSubmit(apply)
+            if !relay.isEmpty, !ViaMacAddress.isValidRelay(relay) {
+                Text("Нужен адрес вида https://relay.example.ru").font(.caption).foregroundStyle(.red)
+            }
+        } header: {
+            Text("Подключение из других сетей")
+        } footer: {
+            Text("Чтобы iPhone из мобильного интернета подключался к Mac напрямую, пробросьте на роутере UDP-порт на адрес Mac и укажите внешний адрес дома: белый IP или имя DDNS. Свой сервер связи нужен, когда прямой путь недоступен. Подробности — docs/via-mac-direct.md и docs/via-mac-relay.md. Изменения применяются по Return.")
+                .foregroundStyle(.secondary)
+        }
+        .onAppear {
+            port = String(host.port)
+            external = host.externalAddress
+            relay = host.relayServer
+        }
+        // The same fields may be open in the other window too.
+        .onChange(of: host.port) { port = String(host.port) }
+        .onChange(of: host.externalAddress) { external = host.externalAddress }
+        .onChange(of: host.relayServer) { relay = host.relayServer }
+        .onDisappear(perform: apply)
+    }
+
+    private func apply() {
+        if let value = Int(port), (1...65535).contains(value) { host.port = value } else { port = String(host.port) }
+        host.externalAddress = external.trimmingCharacters(in: .whitespaces)
+        host.relayServer = relay.trimmingCharacters(in: .whitespaces)
     }
 }
 

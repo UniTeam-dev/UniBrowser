@@ -65,6 +65,9 @@ struct PairingPayload: Codable, Equatable, Sendable {
     /// The Mac's own IP addresses (`ip:port`), dialled alongside the relay: a phone
     /// that can reach one connects without waiting on the relay.
     var addresses: [String]?
+    /// The «Внешний адрес» set on the Mac (`host[:port]`, an IP or a DNS name); the phone
+    /// resolves it before every connect and dials it alongside the others.
+    var externalAddress: String?
     var macName: String
     /// One-time secret; the Mac accepts it once, before `expires`.
     var token: String
@@ -79,10 +82,11 @@ struct PairingPayload: Codable, Equatable, Sendable {
         return "\(Self.scheme)://pair?d=\(json.base64URLEncoded)"
     }
 
-    init(macID: String, relayURL: String?, addresses: [String]?, macName: String, token: String, expires: Date) {
+    init(macID: String, relayURL: String?, addresses: [String]?, externalAddress: String?, macName: String, token: String, expires: Date) {
         self.macID = macID
         self.relayURL = relayURL
         self.addresses = addresses
+        self.externalAddress = externalAddress
         self.macName = macName
         self.token = token
         self.expires = expires
@@ -116,8 +120,9 @@ enum ControlRequest: Codable, Sendable {
     /// Open a page in a new tab on the Mac and bring the Mac app forward.
     case open(url: URL)
     /// A round trip that proves the link works: sent right after connecting and
-    /// then every few seconds while connected.
-    case ping
+    /// then every few seconds while connected. `path` is how the phone reaches the
+    /// Mac on this link, once it knows.
+    case ping(path: LinkPath? = nil)
 }
 
 struct ControlResponse: Codable, Sendable {
@@ -126,6 +131,10 @@ struct ControlResponse: Codable, Sendable {
     var macName: String?
     /// The Mac's current IP addresses, in answers to `pair` and `ping`.
     var addresses: [String]?
+    /// The Mac's home relay, in answers to `pair` and `ping`.
+    var relayURL: String?
+    /// The Mac's «Внешний адрес»; empty when it has none (nil: an older Mac that doesn't say).
+    var externalAddress: String?
 
     static func failure(_ message: String) -> ControlResponse {
         ControlResponse(ok: false, error: message)

@@ -1,0 +1,27 @@
+# /etc/systemd/system/iroh-relay.service — сервер связи без Docker (бинарник из
+# `cargo install iroh-relay --version 1.0.2 --features server --locked`).
+# Сертификаты: certbot кладёт копию для этого пользователя в /etc/iroh-relay/tls
+# (см. docs/via-mac-relay.md, «Без Docker»), пути в iroh-relay.toml — туда.
+[Unit]
+Description=iroh-relay — сервер связи UniBrowser «Через Mac»
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/iroh-relay --config-path /etc/iroh-relay/iroh-relay.toml
+User=iroh-relay
+Group=iroh-relay
+Environment=RUST_LOG=info
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+# Все порты конфига выше 1024 — особые права не нужны.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+# Для cert_mode = "LetsEncrypt": cert_dir = "/var/lib/iroh-relay".
+StateDirectory=iroh-relay
+
+[Install]
+WantedBy=multi-user.target

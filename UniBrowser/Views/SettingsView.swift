@@ -106,15 +106,20 @@ private struct PasswordSettings: View {
 }
 
 private struct IPhoneSettings: View {
+    @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Form {
-            Text("Вкладки, пароли и сеть Mac на iPhone: связь, QR-код для подключения и список iPhone.")
-                .foregroundStyle(.secondary)
-            LabeledContent("Связь с iPhone") {
-                Button("Открыть…") { openWindow(id: "iphone") }
+            Section {
+                Text("Вкладки, пароли и сеть Mac на iPhone: связь, QR-код для подключения и список iPhone.")
+                    .foregroundStyle(.secondary)
+                LabeledContent("Связь с iPhone") {
+                    Button("Открыть…") { openWindow(id: "iphone") }
+                }
             }
+            ViaMacConnectionSection()
+                .environment(model.viaMac)
         }
         .formStyle(.grouped)
     }

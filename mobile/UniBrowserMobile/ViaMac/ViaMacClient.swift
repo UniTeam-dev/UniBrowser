@@ -8,12 +8,9 @@ import Network
 /// Route: WKWebView → 127.0.0.1:47801 → one iroh stream per connection →
 /// SOCKS server in UniBrowser on the Mac → the Mac's network.
 actor ViaMacClient {
-    enum Path: Sendable {
-        case direct
-        case relay
-    }
-
     private var endpoint: Endpoint?
+    /// The relay the endpoint was bound with; nil: n0's.
+    private var endpointRelay: String?
     private var connection: Connection?
     private var listener: NWListener?
     /// The connect in progress; the next one waits for it.
@@ -21,15 +18,52 @@ actor ViaMacClient {
 
     // MARK: - Endpoint and loopback port
 
-    private func boundEndpoint() async throws -> Endpoint {
-        if let endpoint { return endpoint }
+    /// The phone's endpoint, bound with the Mac's own relay when it has one, so that
+    /// Mac never depends on n0's relays; rebound when the relay changes.
+    private func boundEndpoint(relay: String?) async throws -> Endpoint {
+        if let endpoint, endpointRelay == relay { return endpoint }
+        if let old = endpoint {
+            disconnect()
+            endpoint = nil
+            try? await old.close()
+        }
         let endpoint = try await Endpoint.bind(options: EndpointOptions(
             preset: presetN0(),
             secretKey: ViaMacIdentity.secretKey(),
-            alpns: [ViaMacProtocol.alpn]
+            alpns: [ViaMacProtocol.alpn],
+            relayMode: try relay.map { try RelayMode.customFromUrls(urls: [$0]) }
         ))
         self.endpoint = endpoint
+        endpointRelay = relay
         return endpoint
+    }
+
+    /// `ip:port` for every A/AAAA record of `address` («host[:port]»), resolved now, so a
+    /// home IP that changes behind a DDNS name keeps working. Empty if it doesn't resolve.
+    static func resolve(_ address: String?) async -> [String] {
+        guard let address, let (host, port) = ViaMacAddress.parse(address, defaultPort: ViaMacAddress.defaultPort) else { return [] }
+        if ViaMacAddress.isIPLiteral(host) { return [ViaMacAddress.join(host, port)] }
+        let resolved = try? await withTimeout(5) {
+            var hints = addrinfo()
+            hints.ai_family = AF_UNSPEC
+            hints.ai_socktype = SOCK_DGRAM
+            var list: UnsafeMutablePointer<addrinfo>?
+            guard getaddrinfo(host, nil, &hints, &list) == 0 else { return [String]() }
+            defer { freeaddrinfo(list) }
+            var out: [String] = []
+            var next = list
+            while let info = next?.pointee {
+                var name = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                if getnameinfo(info.ai_addr, info.ai_addrlen, &name, socklen_t(name.count), nil, 0, NI_NUMERICHOST) == 0 {
+                    let ip = String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                    // A scoped (link-local) address isn't a valid iroh address.
+                    if !ip.contains("%") { out.append(ViaMacAddress.join(ip, port)) }
+                }
+                next = info.ai_next
+            }
+            return out
+        }
+        return Array(Set(resolved ?? [])).sorted()
     }
 
     /// Opens the loopback SOCKS port and returns once it listens. Connections
@@ -107,21 +141,23 @@ actor ViaMacClient {
         let previous = lastConnect
         let attempt = Task {
             _ = await previous?.result
-            return try await self.connectNow(macID: macID, relayURL: relayURL, addresses: addresses)
+            return try await self.connectNow(macID: macID, relayURL: relayURL, addresses: addresses,
+                                             ownRelay: ViaMacAddress.customRelay(relayURL))
         }
         lastConnect = attempt
         return try await attempt.value
     }
 
-    private func connectNow(macID: String, relayURL: String?, addresses: [String]) async throws -> Connection {
-        if let connection, connection.closeReason() == nil {
+    private func connectNow(macID: String, relayURL: String?, addresses: [String], ownRelay: String?) async throws -> Connection {
+        if let connection, connection.closeReason() == nil, endpointRelay == ownRelay {
             if connection.remoteId().description == macID { return connection }
             disconnect()
         }
-        let endpoint = try await boundEndpoint()
+        let endpoint = try await boundEndpoint(relay: ownRelay)
         // The Mac's own addresses go with the relay: where one is reachable (same Wi-Fi, an open
         // NAT) the link doesn't depend on the relay, which some networks throttle to a trickle.
-        let address = EndpointAddr(id: try EndpointId.fromString(s: macID), relayUrl: relayURL, addresses: addresses)
+        let address = EndpointAddr(id: try EndpointId.fromString(s: macID),
+                                   relayUrl: relayURL.flatMap { ViaMacAddress.isValidRelay($0) ? $0 : nil }, addresses: addresses)
         let connection: Connection
         do {
             connection = try await withTimeout(20) {
@@ -142,9 +178,9 @@ actor ViaMacClient {
     }
 
     /// First contact: proves to the Mac that this phone scanned its QR code.
-    func pair(with payload: PairingPayload, deviceName: String) async throws -> ControlResponse {
+    func pair(with payload: PairingPayload, addresses: [String], deviceName: String) async throws -> ControlResponse {
         guard payload.expires > .now else { throw ViaMacError.pairingExpired }
-        let connection = try await connect(macID: payload.macID, relayURL: payload.relayURL, addresses: payload.addresses ?? [])
+        let connection = try await connect(macID: payload.macID, relayURL: payload.relayURL, addresses: addresses)
         let response = try await withTimeout(20) {
             try await ControlChannel.request(.pair(token: payload.token, deviceName: deviceName), over: connection)
         }
@@ -173,9 +209,9 @@ actor ViaMacClient {
     /// A round trip to the Mac over a fresh stream. An older Mac answers `ping` as an
     /// unknown request, which still proves the link; a Mac that doesn't know this
     /// phone answers with the reason and hangs up.
-    func ping(timeout: Double) async throws -> ControlResponse {
+    func ping(path: LinkPath?, timeout: Double) async throws -> ControlResponse {
         guard let connection, connection.closeReason() == nil else { throw ViaMacError.notConnected }
-        let response = try await withTimeout(timeout) { try await ControlChannel.request(.ping, over: connection) }
+        let response = try await withTimeout(timeout) { try await ControlChannel.request(.ping(path: path), over: connection) }
         if !response.ok, (try? await withTimeout(2, { await connection.closed() })) != nil {
             throw ViaMacError.rejected(response.error ?? "Mac отклонил подключение.")
         }
@@ -190,11 +226,13 @@ actor ViaMacClient {
         return reason
     }
 
-    /// Direct (same Wi-Fi or punched-through NAT) or via a relay server.
-    func currentPath() -> Path? {
+    /// Via a relay server, or direct: to one of `external` (the Mac's external address,
+    /// resolved) or otherwise (same Wi-Fi or a punched-through NAT).
+    func currentPath(external: [String]) -> LinkPath? {
         guard let connection, connection.closeReason() == nil else { return nil }
-        let selected = connection.paths().first { $0.isSelected }
-        return selected?.isRelay == true ? .relay : .direct
+        guard let selected = connection.paths().first(where: { $0.isSelected }) else { return nil }
+        if selected.isRelay { return .relay }
+        return external.contains(selected.remoteAddr) ? .external : .direct
     }
 
     func disconnect() {

@@ -16,17 +16,11 @@ import UIKit
 @MainActor
 @Observable
 final class MacRelay {
-    enum Path: Equatable {
-        /// Same Wi-Fi or a punched-through NAT.
-        case direct
-        /// Through a relay server, which sees only ciphertext.
-        case relay
-    }
-
     enum Status: Equatable {
         case notPaired
         case connecting
-        case connected(Path)
+        /// The path: the Mac's external address, other direct, or a relay server (which sees only ciphertext).
+        case connected(LinkPath)
         case unreachable(reason: String)
     }
 
@@ -36,6 +30,8 @@ final class MacRelay {
         var name: String
         /// The Mac's own IP addresses, from the QR and then from every ping answer.
         var addresses: [String]?
+        /// The Mac's «Внешний адрес» (`host:port`), from the QR and every answer.
+        var externalAddress: String?
     }
 
     /// Loopback port where ViaMacClient serves the tunnel as SOCKS5.
@@ -47,6 +43,28 @@ final class MacRelay {
     /// True while the tab mirror is live.
     private(set) var isSyncing = false
     private(set) var lastSynced: Date?
+
+    /// The user's own «Внешний адрес Mac» on this phone; empty: the one the Mac sends.
+    var externalAddressOverride: String {
+        didSet { UserDefaults.standard.set(externalAddressOverride, forKey: Keys.externalOverride) }
+    }
+
+    /// The user's own «Сервер связи» on this phone; empty: the Mac's.
+    var relayOverride: String {
+        didSet { UserDefaults.standard.set(relayOverride, forKey: Keys.relayOverride) }
+    }
+
+    /// The external address dialled on the next connect.
+    var effectiveExternalAddress: String? {
+        let own = externalAddressOverride.trimmingCharacters(in: .whitespaces)
+        return own.isEmpty ? pairedMac?.externalAddress : own
+    }
+
+    /// The Mac's relay as used on the next connect; the phone binds with it too unless it's n0's.
+    var effectiveRelay: String? {
+        let own = relayOverride.trimmingCharacters(in: .whitespaces)
+        return own.isEmpty ? pairedMac?.relayURL : own
+    }
 
     @ObservationIgnored private let client = ViaMacClient()
     @ObservationIgnored private var linkTask: Task<Void, Never>?
@@ -62,15 +80,22 @@ final class MacRelay {
     @ObservationIgnored private var lastMirrored: SessionSnapshot?
     @ObservationIgnored private var historyPump: Task<Void, Never>?
     @ObservationIgnored private var proxyChange: Task<Void, Never>?
+    /// The external address as resolved for the current link, to tell that path apart.
+    @ObservationIgnored private var externalTargets: [String] = []
+    @ObservationIgnored private var linkPath: LinkPath?
 
     private enum Keys {
         static let mac = "viaMac.pairedMac"
+        static let externalOverride = "viaMac.externalAddressOverride"
+        static let relayOverride = "viaMac.relayOverride"
     }
 
     init() {
         pairedMac = UserDefaults.standard.data(forKey: Keys.mac)
             .flatMap { try? JSONDecoder().decode(PairedMac.self, from: $0) }
         base = Self.loadBase()
+        externalAddressOverride = UserDefaults.standard.string(forKey: Keys.externalOverride) ?? ""
+        relayOverride = UserDefaults.standard.string(forKey: Keys.relayOverride) ?? ""
     }
 
     /// Called once from AppModel with the via-Mac mode's tabs and the phone's logins.
@@ -116,11 +141,14 @@ final class MacRelay {
             await client.disconnect()
             linkClosed()
             status = .connecting
-            let response = try await client.pair(with: payload, deviceName: UIDevice.current.name)
+            let external = await ViaMacClient.resolve(payload.externalAddress)
+            let response = try await client.pair(with: payload, addresses: (payload.addresses ?? []) + external,
+                                                 deviceName: UIDevice.current.name)
             if pairedMac?.id != payload.macID { setBase(nil) }
             pairedMac = PairedMac(id: payload.macID, relayURL: payload.relayURL, name: response.macName ?? payload.macName,
-                                  addresses: response.addresses ?? payload.addresses)
+                                  addresses: response.addresses ?? payload.addresses, externalAddress: payload.externalAddress)
             savePairedMac()
+            updateMac(from: response)
             isActive = true
         } catch {
             lastError = error.localizedDescription
@@ -199,7 +227,12 @@ final class MacRelay {
             while !Task.isCancelled, let self, self.isActive, let mac = self.pairedMac {
                 self.status = .connecting
                 do {
-                    _ = try await self.client.connect(macID: mac.id, relayURL: mac.relayURL, addresses: mac.addresses ?? [])
+                    // A DDNS name is resolved anew each time: the home IP may have changed.
+                    let external = await ViaMacClient.resolve(self.effectiveExternalAddress)
+                    self.externalTargets = external
+                    self.linkPath = nil
+                    _ = try await self.client.connect(macID: mac.id, relayURL: self.effectiveRelay,
+                                                      addresses: (mac.addresses ?? []) + external)
                     // «Connected» only once the Mac answers on this link: a phone it doesn't know, or a
                     // link that carries nothing yet, stays «connecting». A new link over a throttled
                     // relay can take a minute to carry its first stream.
@@ -231,14 +264,22 @@ final class MacRelay {
         }
     }
 
-    /// One round trip to the Mac; keeps the Mac's addresses it reports for the next connect.
+    /// One round trip to the Mac; keeps how to reach the Mac for the next connect and tells
+    /// the Mac which path this link took.
     private func ping(timeout: Double) async throws {
-        let response = try await client.ping(timeout: timeout)
-        if let addresses = response.addresses, var mac = pairedMac, mac.addresses != addresses {
-            mac.addresses = addresses
-            pairedMac = mac
-            savePairedMac()
-        }
+        updateMac(from: try await client.ping(path: linkPath, timeout: timeout))
+    }
+
+    /// The Mac's addresses, relay and external address from its answer.
+    private func updateMac(from response: ControlResponse) {
+        guard var mac = pairedMac else { return }
+        if let addresses = response.addresses { mac.addresses = addresses }
+        if let relay = response.relayURL { mac.relayURL = relay }
+        // An older Mac doesn't send it; an empty one means the user cleared it.
+        if let external = response.externalAddress { mac.externalAddress = external.isEmpty ? nil : external }
+        guard mac != pairedMac else { return }
+        pairedMac = mac
+        savePairedMac()
     }
 
     /// A link can stay open while nothing gets through (the Mac app hung, a relay
@@ -279,11 +320,9 @@ final class MacRelay {
     }
 
     private func refreshPath() async {
-        switch await client.currentPath() {
-        case .direct: status = .connected(.direct)
-        case .relay: status = .connected(.relay)
-        case nil: break
-        }
+        guard let path = await client.currentPath(external: externalTargets) else { return }
+        linkPath = path
+        status = .connected(path)
     }
 
     private func linkClosed() {

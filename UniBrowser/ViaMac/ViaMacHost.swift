@@ -33,6 +33,40 @@ final class ViaMacHost {
     private(set) var syncingDeviceIDs: Set<String> = []
     /// The code currently shown as a QR; nil until "Показать QR-код" is pressed.
     private(set) var pairing: PairingPayload?
+    /// The UDP port the link listens on (IPv4), the one to forward on the router.
+    private(set) var boundPort: UInt16?
+    /// This Mac's address on its local network, for the router's port forward.
+    private(set) var lanAddress: String?
+    /// How each phone reached the Mac on its last link, as the phone reported it.
+    private(set) var linkPaths: [String: LinkPath] = [:]
+
+    /// The fixed UDP port for a router port forward.
+    var port: Int {
+        didSet {
+            UserDefaults.standard.set(port, forKey: Keys.port)
+            if port != oldValue { restartIfRunning() }
+        }
+    }
+
+    /// «Внешний адрес»: the home's public IP or DNS name, optionally with `:port`. Phones
+    /// get it with the QR and every answer, so changing it needs no restart.
+    var externalAddress: String {
+        didSet { UserDefaults.standard.set(externalAddress, forKey: Keys.externalAddress) }
+    }
+
+    /// «Свой сервер связи»: a relay URL; empty or n0's means n0's public relays.
+    var relayServer: String {
+        didSet {
+            UserDefaults.standard.set(relayServer, forKey: Keys.relayServer)
+            if relayServer != oldValue { restartIfRunning() }
+        }
+    }
+
+    /// The external address as phones dial it: `host:port`, the port defaulting to this Mac's.
+    var externalAddressForPhones: String? {
+        ViaMacAddress.parse(externalAddress, defaultPort: boundPort ?? UInt16(clamping: port))
+            .map { ViaMacAddress.join($0.host, $0.port) }
+    }
 
     var isEnabled: Bool {
         didSet {
@@ -58,12 +92,18 @@ final class ViaMacHost {
     private enum Keys {
         static let enabled = "viaMac.enabled"
         static let devices = "viaMac.pairedDevices"
+        static let port = "viaMac.port"
+        static let externalAddress = "viaMac.externalAddress"
+        static let relayServer = "viaMac.relayServer"
     }
 
     init() {
         isEnabled = UserDefaults.standard.bool(forKey: Keys.enabled)
         pairedDevices = UserDefaults.standard.data(forKey: Keys.devices)
             .flatMap { try? JSONDecoder().decode([PairedDevice].self, from: $0) } ?? []
+        port = UserDefaults.standard.object(forKey: Keys.port) as? Int ?? Int(ViaMacAddress.defaultPort)
+        externalAddress = UserDefaults.standard.string(forKey: Keys.externalAddress) ?? ""
+        relayServer = UserDefaults.standard.string(forKey: Keys.relayServer) ?? ""
     }
 
     /// Called once from AppModel; starts serving if the user left it on.
@@ -92,10 +132,13 @@ final class ViaMacHost {
         status = .starting
         let engine = ViaMacEngine(host: self)
         do {
-            let address = try await engine.start(secretKey: ViaMacIdentity.secretKey())
+            let address = try await engine.start(secretKey: ViaMacIdentity.secretKey(), port: UInt16(clamping: port),
+                                                 relay: ViaMacAddress.customRelay(relayServer))
             self.engine = engine
             endpointID = address.id
             relayURL = address.relayURL
+            boundPort = address.port
+            lanAddress = Self.lanAddress(in: await engine.directAddresses())
             status = .ready
             updateAwakeActivity()
         } catch {
@@ -114,8 +157,34 @@ final class ViaMacHost {
         historyPump?.cancel()
         historyPump = nil
         pairing = nil
+        boundPort = nil
+        linkPaths = [:]
         status = .off
         updateAwakeActivity()
+    }
+
+    private func restartIfRunning() {
+        guard engine != nil else { return }
+        Task {
+            await stop()
+            await start()
+        }
+    }
+
+    /// The private IPv4 addresses among iroh's `ip:port` ones, 192.168.x.x first (the usual
+    /// home router range; 172.16–31 is often a VPN or a virtual machine network).
+    private static func lanAddress(in addresses: [String]) -> String? {
+        let ips = addresses.compactMap { $0.split(separator: ":").count == 2 ? String($0.split(separator: ":")[0]) : nil }
+        func rank(_ ip: String) -> Int? {
+            let parts = ip.split(separator: ".").compactMap { Int($0) }
+            guard parts.count == 4 else { return nil }
+            if parts[0] == 192 && parts[1] == 168 { return 0 }
+            if parts[0] == 10 { return 1 }
+            if parts[0] == 172 && (16...31).contains(parts[1]) { return 2 }
+            return nil
+        }
+        let lan = ips.filter { rank($0) != nil }.sorted { rank($0)! < rank($1)! }
+        return lan.isEmpty ? nil : lan.joined(separator: ", ")
     }
 
     // MARK: - Pairing
@@ -127,6 +196,7 @@ final class ViaMacHost {
             macID: endpointID,
             relayURL: relayURL,
             addresses: await engine.directAddresses(),
+            externalAddress: externalAddressForPhones,
             macName: macName,
             token: PairingPayload.newToken(),
             expires: .now.addingTimeInterval(ViaMacProtocol.pairingLifetime)
@@ -169,6 +239,10 @@ final class ViaMacHost {
 
     func deviceConnected(_ deviceID: String) {
         connectedDeviceIDs.insert(deviceID)
+    }
+
+    func linkPathReported(_ path: LinkPath, by deviceID: String) {
+        linkPaths[deviceID] = path
     }
 
     func deviceDisconnected(_ deviceID: String) {
