@@ -32,6 +32,57 @@ struct ViaMacBanner: View {
     }
 }
 
+/// «Подключение»: how the phone reaches the Mac from other networks — what the Mac sent,
+/// and this phone's own values for when the Mac's are out of date. Applied on Return.
+private struct ViaMacConnectionSection: View {
+    let relay: MacRelay
+    let mac: MacRelay.PairedMac
+    @State private var external = ""
+    @State private var server = ""
+
+    var body: some View {
+        Section {
+            LabeledContent("Адреса Mac", value: mac.addresses?.isEmpty == false ? mac.addresses!.joined(separator: "\n") : "—")
+            LabeledContent("Внешний адрес от Mac", value: mac.externalAddress ?? "Не задан")
+            TextField("Внешний адрес Mac", text: $external, prompt: Text(mac.externalAddress ?? "IP или имя, как на Mac"))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .onSubmit(apply)
+            if !external.isEmpty, ViaMacAddress.parse(external, defaultPort: 1) == nil {
+                Text("Нужен IP-адрес или имя, при желании с портом: 203.0.113.7:47802").font(.footnote).foregroundStyle(.red)
+            }
+            LabeledContent("Сервер связи от Mac", value: mac.relayURL ?? "Не известен")
+            TextField("Сервер связи", text: $server, prompt: Text("https://… — пусто: как на Mac"))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .onSubmit(apply)
+            if !server.isEmpty, !ViaMacAddress.isValidRelay(server) {
+                Text("Нужен адрес вида https://relay.example.ru").font(.footnote).foregroundStyle(.red)
+            }
+        } header: {
+            Text("Подключение")
+        } footer: {
+            Text("Mac сообщает свои адреса и сервер связи при каждом подключении. Если они устарели, укажите здесь свои: пустое поле — как на Mac. Применяется при следующем подключении.")
+        }
+        .onAppear {
+            external = relay.externalAddressOverride
+            server = relay.relayOverride
+        }
+        .onDisappear(perform: apply)
+    }
+
+    private func apply() {
+        let external = external.trimmingCharacters(in: .whitespaces)
+        let server = server.trimmingCharacters(in: .whitespaces)
+        guard external != relay.externalAddressOverride || server != relay.relayOverride else { return }
+        relay.externalAddressOverride = external
+        relay.relayOverride = server
+        relay.reconnectNow()
+    }
+}
+
 struct ViaMacSettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -78,6 +129,10 @@ struct ViaMacSettingsView: View {
                     Text("Вкладки, группы и пространства режима «Через Mac» — это вкладки вашего Mac: изменения с обеих сторон видны сразу, а после разлуки объединяются. Сохранённые пароли UniBrowser приходят с Mac. Все страницы этого режима открываются через сеть Mac: домашний NAS, сервер или роутер доступны и из мобильного интернета. Mac должен быть включён и не спать.")
                 }
 
+                if let mac = relay.pairedMac {
+                    ViaMacConnectionSection(relay: relay, mac: mac)
+                }
+
                 Section {
                     Button("Стереть данные режима", systemImage: "trash", role: .destructive) {
                         confirmErase = true
@@ -112,8 +167,7 @@ struct ViaMacSettingsView: View {
         switch model.relay.status {
         case .notPaired: "Не сопряжён"
         case .connecting: "Подключение…"
-        case .connected(.direct): "Напрямую"
-        case .connected(.relay): "Через реле"
+        case .connected(let path): path.title
         case .unreachable: "Недоступен"
         }
     }

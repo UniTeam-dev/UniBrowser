@@ -1,0 +1,51 @@
+# Сервер связи UniBrowser «Через Mac»: iroh-relay 1.0.2 (та же версия iroh, что в приложениях).
+# Ключи сверены с исходником iroh-relay 1.0.2 (src/main.rs, struct Config / TlsConfig).
+# Схема: nginx на 443 смотрит на SNI и пропускает TLS для relay.example.ru сюда, на 127.0.0.1:8443,
+# не расшифровывая; остальные имена (ваш сайт) nginx обслуживает сам. Подробности — docs/via-mac-relay.md.
+# Замените relay.example.ru на своё имя.
+
+# Сервер пересылает трафик (по умолчанию и так true).
+enable_relay = true
+
+# Простой HTTP сервера связи. Нужен только для проверки captive portal (/generate_204):
+# порт 80 занят nginx, поэтому слушаем локально, а nginx отдаёт сюда /generate_204 этого имени.
+http_bind_addr = "127.0.0.1:3340"
+
+# QUIC address discovery: телефон и Mac узнают свой внешний адрес — помогает прямому пути.
+# Требует секцию [tls]. Порт UDP 7842 открывается в файрволе напрямую (nginx его не касается).
+enable_quic_addr_discovery = true
+
+# Метрики Prometheus — только локально (по умолчанию слушали бы все адреса на 9090).
+enable_metrics = true
+metrics_bind_addr = "127.0.0.1:9090"
+
+[tls]
+# HTTPS-сервер связи: сюда nginx stream пересылает соединения с SNI relay.example.ru.
+https_bind_addr = "127.0.0.1:8443"
+# UDP для QUIC address discovery. 7842 — порт, который клиенты iroh ждут по умолчанию.
+quic_bind_addr = "[::]:7842"
+
+# Сертификат от certbot; «Reloading» перечитывает файлы раз в сутки, так что продление
+# certbot подхватывается без перезапуска. Пути — как у certbot (их читает root или группа ssl-cert).
+cert_mode = "Reloading"
+manual_cert_path = "/etc/letsencrypt/live/relay.example.ru/fullchain.pem"
+manual_key_path = "/etc/letsencrypt/live/relay.example.ru/privkey.pem"
+
+# Вариант без certbot: сервер сам получает сертификат Let's Encrypt (TLS-ALPN-01 на порту 443;
+# через nginx с ssl_preread это работает, потому что TLS доходит до сервера связи нетронутым).
+# Тогда вместо трёх строк выше:
+# cert_mode = "LetsEncrypt"
+# hostname = "relay.example.ru"
+# contact = "you@example.ru"
+# cert_dir = "/var/lib/iroh-relay"
+
+# Кого пускать. По умолчанию — всех («everyone»): сервер связи видит только шифрованный
+# трафик, но чужой клиент iroh, узнавший адрес, может гонять через него свой. Ограничить
+# можно списком id устройств (64 шестнадцатеричных символа; UniBrowser их пока не показывает,
+# а журнал сервера пишет только сокращённые) или ограничением скорости на клиента:
+# [access]
+# allowlist = ["<id Mac>", "<id iPhone>"]
+#
+# [limits.client.rx]
+# bytes_per_second = 4000000   # ~32 Мбит/с на клиента
+# max_burst_bytes = 8000000
