@@ -17,15 +17,18 @@ final class AppModel {
     /// Visits and bookmarks of this Mac, shared with its via-Mac iPhones (docs/library-architecture.md).
     let history = HistoryStore(fileURL: LibraryFiles.url("history.sqlite"), deviceID: BrowserStore.deviceID)
     let bookmarks = BookmarkStore(fileURL: LibraryFiles.url("bookmarks.json"))
-    /// Saved SSH servers (secrets in the keychain) and the server keys the user trusted.
-    let sshHosts = SSHHostStore(fileURL: LibraryFiles.url("ssh-hosts.json"), secrets: SSHSecretStore())
-    let knownHosts = KnownHostsStore(fileURL: LibraryFiles.url("known-hosts.json"))
+    /// Saved SSH servers (secrets in the keychain) and the server keys the user trusted;
+    /// private windows share the main model's two stores (one object per file) and its history map.
+    let sshHosts: SSHHostStore
+    let knownHosts: KnownHostsStore
+    @ObservationIgnored private let main: AppModel?
     /// Command history per SSH host, shared by that host's tabs so they don't overwrite each other's saves.
     @ObservationIgnored private var sshHistories: [UUID: CommandHistory] = [:]
 
     var paletteMode: PaletteMode?
 
     func sshHistory(for hostID: UUID) -> CommandHistory {
+        if let main { return main.sshHistory(for: hostID) }
         if let history = sshHistories[hostID] { return history }
         let history = CommandHistory(fileURL: LibraryFiles.url("ssh-history/\(hostID.uuidString.lowercased()).json"))
         sshHistories[hostID] = history
@@ -74,19 +77,27 @@ final class AppModel {
     @ObservationIgnored private static let privateWindows = NSHashTable<NSWindow>.weakObjects()
 
     convenience init() {
-        self.init(passwords: PasswordsService(), siteSettings: .persistent(), isPrivate: false)
+        self.init(passwords: PasswordsService(), siteSettings: .persistent(), isPrivate: false, main: nil)
     }
 
-    private init(passwords: PasswordsService, siteSettings: SiteSettingsStore, isPrivate: Bool) {
+    private init(passwords: PasswordsService, siteSettings: SiteSettingsStore, isPrivate: Bool, main: AppModel?) {
         self.passwords = passwords
+        self.main = main
+        sshHosts = main?.sshHosts ?? SSHHostStore(fileURL: LibraryFiles.url("ssh-hosts.json"), secrets: SSHSecretStore())
+        knownHosts = main?.knownHosts ?? KnownHostsStore(fileURL: LibraryFiles.url("known-hosts.json"))
         self.isPrivate = isPrivate
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords, siteSettings: siteSettings, isPrivate: isPrivate))
         installTabSwitcherMonitor()
+        // The stores are shared, so each model adds its own reaction to the previous ones.
+        let previousRemoved = sshHosts.onRemoved
         sshHosts.onRemoved = { [weak self] ids in
+            previousRemoved?(ids)
             guard let store = self?.store else { return }
             for tab in store.tabs.values where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
         }
+        let previousSaved = sshHosts.onSaved
         sshHosts.onSaved = { [weak self] id in
+            previousSaved?(id)
             guard let store = self?.store else { return }
             for tab in store.tabs.values where tab.url?.sshHostID == id && tab.sshSession?.state != .connected { tab.sleep() }
         }
@@ -109,7 +120,7 @@ final class AppModel {
 
     /// Shares the logins; permission decisions start from the saved ones and stay in memory.
     func makePrivateModel() -> AppModel {
-        AppModel(passwords: passwords, siteSettings: store.environment.siteSettings.privateCopy(), isPrivate: true)
+        AppModel(passwords: passwords, siteSettings: store.environment.siteSettings.privateCopy(), isPrivate: true, main: main ?? self)
     }
 
     /// The private window closed: its pages go, and with the last reference its data store.
