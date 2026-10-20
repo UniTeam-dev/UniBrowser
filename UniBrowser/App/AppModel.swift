@@ -17,6 +17,9 @@ final class AppModel {
     /// Visits and bookmarks of this Mac, shared with its via-Mac iPhones (docs/library-architecture.md).
     let history = HistoryStore(fileURL: LibraryFiles.url("history.sqlite"), deviceID: BrowserStore.deviceID)
     let bookmarks = BookmarkStore(fileURL: LibraryFiles.url("bookmarks.json"))
+    /// Saved SSH servers (secrets in the keychain) and the server keys the user trusted.
+    let sshHosts = SSHHostStore(fileURL: LibraryFiles.url("ssh-hosts.json"), secrets: SSHSecretStore())
+    let knownHosts = KnownHostsStore(fileURL: LibraryFiles.url("known-hosts.json"))
 
     var paletteMode: PaletteMode?
     /// The sidebar as a 56 pt column of icons instead of the 290 pt list; kept across launches.

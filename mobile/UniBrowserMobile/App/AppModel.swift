@@ -17,6 +17,9 @@ final class AppModel {
     let relay: MacRelay
     /// Saved per-site decisions, shared by the normal and via-Mac modes.
     let siteSettings = SiteSettingsStore.persistent()
+    /// Saved SSH servers and trusted server keys: one set for the whole app, not per mode.
+    let sshHosts = SSHHostStore(fileURL: LibraryFiles.url("ssh-hosts.json"), secrets: SSHSecretStore())
+    let knownHosts = KnownHostsStore(fileURL: LibraryFiles.url("known-hosts.json"))
     /// «Приватный»: replaced, with its in-memory cookies, each time the user leaves it.
     private(set) var privateStore: MobileStore
 
