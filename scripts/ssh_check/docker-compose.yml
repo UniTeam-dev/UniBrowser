@@ -2,8 +2,8 @@
 #   docker compose -f scripts/ssh_check/docker-compose.yml up -d
 services:
   ssh:
-    image: lscr.io/linuxserver/openssh-server:latest
-    ports: ["2222:2222"]
+    image: lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls239
+    ports: ["127.0.0.1:2222:2222"]
     environment:
       USER_NAME: test
       USER_PASSWORD: test

@@ -47,7 +47,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Сайт, которому вы разрешили, узнаёт вашу геопозицию — например, чтобы показать карту.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>UniBrowser подключается к вашему Mac в режиме «Через Mac».</string>
+	<string>UniBrowser подключается к вашему Mac в режиме «Через Mac» и к серверам SSH в домашней сети.</string>
 	<!-- Only standard encryption (HTTPS, QUIC/TLS in iroh, CryptoKit): exempt from export filings. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>

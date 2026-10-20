@@ -26,7 +26,7 @@ packages:
   NIOExtras:
     # NIOSOCKS: SSHSession (Shared/SSH) compiles into both apps.
     url: https://github.com/apple/swift-nio-extras
-    from: 1.24.0
+    exactVersion: 1.35.1
 targets:
   # Distributed from the website only (Developer ID + notarization), like Chrome and
   # Firefox: no App Sandbox, private WebKit API (Web Inspector) is allowed.
