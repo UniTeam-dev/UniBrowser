@@ -61,6 +61,10 @@ final class BrowserTab: Identifiable {
     private(set) var sshSession: SSHSession?
     /// Its terminal, kept with the session so switching tabs keeps the screen.
     @ObservationIgnored private(set) var sshTerminal: SSHTerminalView?
+    /// Its «Файлы» panel and transfers, kept while the panel is hidden.
+    private(set) var sshFiles: SFTPBrowser?
+    /// ⌘⇧F.
+    var isFilesVisible = false
 
     /// Mirrors `webView == nil` (or `sshSession == nil`) so views redraw when a tab sleeps or wakes.
     private(set) var isAsleep = true
@@ -145,6 +149,7 @@ final class BrowserTab: Identifiable {
         guard sshSession == nil else { return }
         let session = SSHSession(host: host, secret: secret, knownHosts: knownHosts, route: .direct)
         sshTerminal = SSHTerminalView(session: session, hostID: host.id)
+        sshFiles = SFTPBrowser(session: session)
         sshSession = session
         isAsleep = false
     }
@@ -160,6 +165,7 @@ final class BrowserTab: Identifiable {
         sshSession = nil
         sshTerminal?.removeFromSuperview()
         sshTerminal = nil
+        sshFiles = nil
         permissionRequest?.cancel()
         permissionRequest = nil
         observations.removeAll()

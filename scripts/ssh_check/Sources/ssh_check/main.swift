@@ -1,6 +1,7 @@
 // SSH checks that need Citadel. Run: swift run --package-path scripts/ssh_check
 // `--live` also logs in to the test server:
 //   docker compose -f scripts/ssh_check/docker-compose.yml up -d && swift run --package-path scripts/ssh_check ssh_check --live
+import Citadel
 import Foundation
 
 let fixtures = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appending(path: "fixtures")
@@ -191,5 +192,184 @@ func checkSession() async {
     print("session: ok")
 }
 
+func checkPaths() {
+    precondition(SFTPBrowser.join("/config", "тест папка") == "/config/тест папка")
+    precondition(SFTPBrowser.join("/a/b", "../c/./d/") == "/a/c/d")
+    precondition(SFTPBrowser.join("/", "..") == "/" && SFTPBrowser.join("/a", "../../..") == "/")
+    precondition(SFTPBrowser.join("/a", "/x//y") == "/x/y")
+    precondition(SFTPBrowser.parent("/a b/c d") == "/a b" && SFTPBrowser.parent("/a") == "/")
+    precondition((try? SFTPBrowser.checked("a/b")) == nil && (try? SFTPBrowser.checked("..")) == nil && (try? SFTPBrowser.checked("")) == nil)
+    precondition((try? SFTPBrowser.checked("файл 2.bin")) == "файл 2.bin")
+    print("paths: ok")
+}
+
+let compose = ["docker", "compose", "-f", fixtures.deletingLastPathComponent().appending(path: "docker-compose.yml").path]
+
+@MainActor
+func waitTransfer(_ queue: TransferQueue, _ id: UUID, seconds: Int = 120, _ ok: (TransferQueue.State) -> Bool) async -> TransferQueue.Item {
+    func item() -> TransferQueue.Item? { queue.items.first { $0.id == id } }
+    for _ in 0..<(seconds * 20) where !(item().map { ok($0.state) } ?? false) { try? await Task.sleep(for: .milliseconds(50)) }
+    guard let item = item(), ok(item.state) else { preconditionFailure("transfer \(id): \(String(describing: item()))") }
+    return item
+}
+
+@MainActor
+func checkSFTP() async {
+    let session = SSHSession(host: SSHHost(address: "127.0.0.1", port: 2222, username: "test"), secret: SSHSecret(password: "test"),
+                             knownHosts: KnownHostsStore(fileURL: nil), route: .direct)
+    func login() async {
+        for _ in 0..<60 {
+            await session.connect(cols: 80, rows: 24)
+            if case .hostKeyPrompt = session.state { session.answerHostKey(trust: true) }
+            for _ in 0..<100 where session.state == .connecting { try? await Task.sleep(for: .milliseconds(50)) }
+            if session.state == .connected { return }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        preconditionFailure("login: \(session.state)")
+    }
+    await login()
+    let home = "/config"
+    _ = try! await session.exec("rm -rf '\(home)/тест папка' '\(home)/удалить' '\(home)/держать' '\(home)/ссылка' \(home)/*.txt \(home)/*.bin")
+
+    // concurrent callers share one SFTP channel
+    let clients = await withTaskGroup(of: SFTPClient.self) { group in
+        for _ in 0..<2 { group.addTask { try! await session.sftp() } }
+        return await group.reduce(into: []) { $0.append($1) }
+    }
+    precondition(clients[0] === clients[1], "two SFTP clients")
+
+    let browser = SFTPBrowser(session: session)
+    await browser.reload()
+    precondition(browser.path == home && browser.followsTerminal && browser.error == nil, "start: \(browser.path) \(browser.error ?? "")")
+    try! await browser.makeDirectory("тест папка")
+    guard let folder = browser.entries.first(where: { $0.name == "тест папка" }) else { preconditionFailure("mkdir: \(browser.entries)") }
+    precondition(folder.isDirectory && !folder.isSymlink && folder.path == "\(home)/тест папка")
+    await browser.open(folder.path)
+    precondition(browser.path == folder.path && !browser.followsTerminal && browser.entries.isEmpty)
+
+    // upload 3 MB: progress reaches the total; the listing keeps the Cyrillic name and the size
+    let local = FileManager.default.temporaryDirectory.appending(path: "sftp-check-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: local) }
+    let three = Data((0..<3_000_000).map { _ in UInt8.random(in: 0...255) })
+    let upload = local.appending(path: "файл 1.bin")
+    try! three.write(to: upload)
+    var asked: [String] = []
+    browser.transfers.upload(upload, to: browser.path) { asked.append($0); return .replace }
+    let up = await waitTransfer(browser.transfers, browser.transfers.items.last!.id) { $0 == .done }
+    precondition(up.bytesDone == 3_000_000 && up.bytesTotal == 3_000_000 && up.direction == .upload && asked.isEmpty, "upload: \(up)")
+    await browser.reload()
+    guard let uploaded = browser.entries.first(where: { $0.name == "файл 1.bin" }) else { preconditionFailure("listing: \(browser.entries)") }
+    precondition(uploaded.size == 3_000_000 && !uploaded.isDirectory)
+
+    // name clash: keep both → «файл 1 2.bin»; skip → nothing new, the item leaves the queue
+    browser.transfers.upload(upload, to: browser.path) { asked.append($0); return .keepBoth }
+    _ = await waitTransfer(browser.transfers, browser.transfers.items.last!.id) { $0 == .done }
+    browser.transfers.upload(upload, to: browser.path) { asked.append($0); return .skip }
+    let skipped = browser.transfers.items.last!.id
+    for _ in 0..<100 where browser.transfers.items.contains(where: { $0.id == skipped }) { try? await Task.sleep(for: .milliseconds(50)) }
+    precondition(!browser.transfers.items.contains { $0.id == skipped } && asked == ["файл 1.bin", "файл 1.bin"], "clash: \(asked)")
+    await browser.reload()
+    precondition(Set(browser.entries.map(\.name)) == ["файл 1.bin", "файл 1 2.bin"], "keep both: \(browser.entries.map(\.name))")
+    try! await browser.delete(browser.entries.filter { $0.name == "файл 1 2.bin" })
+
+    // rename, chmod
+    try! await browser.rename(uploaded, to: "файл 2.bin")
+    guard let renamed = browser.entries.first, browser.entries.count == 1, renamed.name == "файл 2.bin" else { preconditionFailure("rename: \(browser.entries)") }
+    try! await browser.chmod(renamed, 0o640)
+    precondition(browser.entries[0].permissions & 0o777 == 0o640, "chmod: \(String(browser.entries[0].permissions, radix: 8))")
+
+    // download: same bytes; a second copy gets the Downloads-style name
+    browser.transfers.download(renamed, to: local)
+    let down = await waitTransfer(browser.transfers, browser.transfers.items.last!.id) { $0 == .done }
+    precondition(try! Data(contentsOf: local.appending(path: "файл 2.bin")) == three && down.bytesDone == 3_000_000)
+    browser.transfers.download(renamed, to: local)
+    let again = await waitTransfer(browser.transfers, browser.transfers.items.last!.id) { $0 == .done }
+    precondition(again.name == "файл 2 (1).bin" && (try! Data(contentsOf: local.appending(path: "файл 2 (1).bin"))) == three, "again: \(again)")
+
+    // text: read, write keeps 0o640 and leaves no temp file; > 5 MB and non-UTF-8 → nil
+    _ = try! await session.exec("printf 'старый\\n' > '\(home)/заметка.txt' && chmod 640 '\(home)/заметка.txt' && head -c 6291456 /dev/zero > \(home)/six.bin && printf '\\377' > \(home)/bad.txt")
+    await browser.followTerminal()
+    precondition(browser.path == home && browser.followsTerminal)
+    let entry = { (name: String) in browser.entries.first { $0.name == name }! }
+    let note = entry("заметка.txt")
+    let old = try! await browser.readText(note)
+    precondition(old == "старый\n", "readText: \(old ?? "nil")")
+    try! await browser.writeText("новый текст\nвторая строка", to: note)
+    let written = try! await browser.readText(entry("заметка.txt"))
+    precondition(written == "новый текст\nвторая строка", "writeText: \(written ?? "nil")")
+    precondition(entry("заметка.txt").permissions & 0o777 == 0o640, "writeText mode: \(String(entry("заметка.txt").permissions, radix: 8))")
+    precondition(!browser.entries.contains { $0.name.hasSuffix(".unibrowser-tmp") })
+    let six = try! await browser.readText(entry("six.bin")), bad = try! await browser.readText(entry("bad.txt"))
+    precondition(six == nil && bad == nil)
+
+    // hidden files behind the toggle
+    precondition(!browser.entries.contains { $0.name.hasPrefix(".") })
+    browser.showHidden = true
+    precondition(browser.entries.contains { $0.name == ".ssh" })
+    browser.showHidden = false
+
+    // symlinks: a link to a folder opens it; deleting a folder removes a link inside it, not the link's target
+    _ = try! await session.exec("ln -s '\(home)/тест папка' '\(home)/ссылка' && mkdir -p '\(home)/держать' '\(home)/удалить' && touch '\(home)/держать/цел' && ln -s '\(home)/держать' '\(home)/удалить/ссылка'")
+    await browser.reload()
+    let link = entry("ссылка")
+    precondition(link.isSymlink && link.isDirectory, "link: \(link)")
+    await browser.open(link.path)
+    precondition(browser.entries.map(\.name) == ["файл 2.bin"], "via link: \(browser.entries)")
+    await browser.open("..")
+    precondition(browser.path == home)
+    try! await browser.delete([entry("ссылка")])
+    let doomed = entry("удалить")
+    let doomedCount = try! await browser.countForDelete([doomed])
+    precondition(doomedCount == 2, "count: \(doomedCount)")
+    try! await browser.delete([doomed])
+    precondition(!browser.entries.contains { $0.name == "удалить" || $0.name == "ссылка" })
+    let kept = try! await session.exec("ls '\(home)/держать'"), inFolder = try! await session.exec("ls '\(home)/тест папка'")
+    precondition(kept == "цел\n" && inFolder == "файл 2.bin\n", "followed a link: \(kept) \(inFolder)")
+
+    // recursive delete with the count
+    let testFolder = entry("тест папка")
+    let testCount = try! await browser.countForDelete([testFolder])
+    precondition(testCount == 2, "count: \(testCount)")
+    try! await browser.delete([testFolder])
+    precondition(!browser.entries.contains { $0.name == "тест папка" })
+    let gone = try! await session.exec("ls -a '\(home)/тест папка' 2>/dev/null || echo gone")
+    precondition(gone == "gone\n")
+    try! await browser.delete(["держать", "заметка.txt", "six.bin", "bad.txt"].map(entry))
+
+    // the server goes away mid-upload: the item fails; after a reconnect «Повторить» finishes it
+    let big = local.appending(path: "большой файл.bin")
+    try! Data(count: 50_000_000).write(to: big)
+    browser.transfers.upload(big, to: home) { _ in .replace }
+    let bigID = browser.transfers.items.last!.id
+    _ = await waitTransfer(browser.transfers, bigID) { _ in browser.transfers.items.last!.bytesDone > 1_000_000 }
+    _ = shell([(compose + ["stop", "-t", "1"]).joined(separator: " ")])
+    let failed = await waitTransfer(browser.transfers, bigID) { if case .failed = $0 { true } else { false } }
+    precondition(failed.bytesDone < 50_000_000, "finished before the server stopped")
+    print("dropped: \(failed.state) at \(failed.bytesDone)")
+    // saving in the editor while the connection is gone throws a message the editor shows («Не удалось сохранить: …»)
+    do {
+        try await browser.writeText("x", to: SFTPEntry(name: "a.txt", path: "\(home)/a.txt", isDirectory: false, isSymlink: false, size: 0, permissions: 0o100644))
+        preconditionFailure("writeText without a connection")
+    } catch {
+        precondition(SFTPBrowser.message(for: error) == "нет соединения с сервером", "\(error)")
+    }
+    _ = shell([(compose + ["start"]).joined(separator: " ")])
+    await login()
+    browser.transfers.retry(bigID)
+    let retried = await waitTransfer(browser.transfers, bigID, seconds: 300) { $0 == .done }
+    precondition(retried.bytesDone == 50_000_000)
+    let remoteSize = try! await session.exec("stat -c %s '\(home)/большой файл.bin'")
+    precondition(remoteSize == "50000000\n", "retried size: \(remoteSize)")
+    _ = try! await session.exec("rm -f '\(home)/большой файл.bin'")
+    session.close()
+    print("sftp: ok")
+}
+
+setvbuf(stdout, nil, _IONBF, 0)
 checkKeys()
-if CommandLine.arguments.contains("--live") { await checkSession() }
+checkPaths()
+if CommandLine.arguments.contains("--live") {
+    await checkSession()
+    await checkSFTP()
+}

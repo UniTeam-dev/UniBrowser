@@ -5,15 +5,26 @@ struct SSHTabView: View {
     @Environment(AppModel.self) private var model
     let tab: BrowserTab
     let hostID: UUID
+    @AppStorage("ssh.filesWidth") private var filesWidth = 420.0
+    @State private var dragStart: Double?
 
     var body: some View {
         if let host = model.sshHosts.host(hostID) {
-            ZStack {
-                if let session = tab.sshSession, let terminal = tab.sshTerminal {
-                    TerminalHost(terminal: terminal)
-                    status(session, host: host)
+            HStack(spacing: 0) {
+                ZStack {
+                    if let session = tab.sshSession, let terminal = tab.sshTerminal {
+                        TerminalHost(terminal: terminal)
+                        status(session, host: host)
+                    }
+                }
+                if tab.isFilesVisible, let session = tab.sshSession, let files = tab.sshFiles {
+                    resizer
+                    FilesPanel(session: session, browser: files)
+                        .frame(width: filesWidth)
+                        .transition(.move(edge: .trailing))
                 }
             }
+            .clipped()
             // Wakes on appear, and again if the tab is put to sleep while on screen.
             .task(id: tab.sshSession == nil) {
                 guard tab.sshSession == nil else { return }
@@ -31,6 +42,27 @@ struct SSHTabView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .task { tab.sleep() }
         }
+    }
+
+    /// Drag to resize «Файлы»; the width is remembered for all SSH tabs.
+    private var resizer: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.12))
+            .frame(width: 1)
+            .padding(.horizontal, 3)
+            .contentShape(Rectangle())
+            .padding(.horizontal, -3)
+            .pointerStyle(.columnResize)
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = dragStart ?? filesWidth
+                        dragStart = start
+                        filesWidth = min(max(start - value.translation.width, 240), 900)
+                    }
+                    .onEnded { _ in dragStart = nil }
+            )
+            .accessibilityLabel("Граница панели «Файлы»")
     }
 
     @ViewBuilder

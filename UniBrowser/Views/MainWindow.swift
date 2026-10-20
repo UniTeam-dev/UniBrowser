@@ -109,6 +109,11 @@ struct AddressStrip: View {
             if let tab, tab.isReadable || tab.reader != nil {
                 iconButton(tab.reader == nil ? "doc.plaintext" : "doc.plaintext.fill", label: "Режим чтения") { toggleReader(tab) }
             }
+            if let tab, tab.isSSH {
+                iconButton(tab.isFilesVisible ? "folder.fill" : "folder", label: "Файлы (⇧⌘F)") {
+                    withAnimation(.easeOut(duration: 0.2)) { tab.isFilesVisible.toggle() }
+                }
+            }
             if let url = tab?.url {
                 BookmarkStar(url: url)
                 iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }

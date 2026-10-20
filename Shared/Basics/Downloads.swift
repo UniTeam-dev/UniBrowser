@@ -98,20 +98,23 @@ extension Downloads: WKDownloadDelegate {
         guard let item = item(for: download) else { return }
         item.state = .finished
         item.progress = 1
+        if let file = item.file { Self.quarantine(file, source: item.source) }
+    }
+
+    /// Like Safari: Gatekeeper checks a downloaded app or script before it first opens. Mac only.
+    nonisolated static func quarantine(_ file: URL, source: URL?) {
         #if os(macOS)
-        // Like Safari: Gatekeeper checks a downloaded app or script before it first opens.
-        if var file = item.file {
-            var values = URLResourceValues()
-            var quarantine: [String: Any] = [
-                kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
-                kLSQuarantineAgentNameKey as String: "UniBrowser",
-            ]
-            if let source = item.source, !["blob", "data"].contains(source.scheme) {
-                quarantine[kLSQuarantineDataURLKey as String] = source
-            }
-            values.quarantineProperties = quarantine
-            try? file.setResourceValues(values)
+        var file = file
+        var values = URLResourceValues()
+        var quarantine: [String: Any] = [
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+            kLSQuarantineAgentNameKey as String: "UniBrowser",
+        ]
+        if let source, !["blob", "data"].contains(source.scheme) {
+            quarantine[kLSQuarantineDataURLKey as String] = source
         }
+        values.quarantineProperties = quarantine
+        try? file.setResourceValues(values)
         #endif
     }
 

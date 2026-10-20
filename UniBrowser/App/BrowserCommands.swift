@@ -51,6 +51,12 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("]")
             Button("Обновить") { model.store.selectedTab?.reload() }
                 .keyboardShortcut("r")
+            Button("Файлы SSH") {
+                guard let tab = model.store.selectedTab, tab.isSSH else { return }
+                withAnimation(.easeOut(duration: 0.2)) { tab.isFilesVisible.toggle() }
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .disabled(!(model.store.selectedTab?.isSSH ?? false))
             Divider()
             Button("Расширения…") { model.isExtensionsVisible = true }
                 .keyboardShortcut("e", modifiers: [.command, .shift])

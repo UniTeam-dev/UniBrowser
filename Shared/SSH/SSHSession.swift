@@ -30,7 +30,8 @@ final class SSHSession {
     @ObservationIgnored private var connection: SSHConnection?
     @ObservationIgnored private var input: AsyncStream<PTYInput>.Continuation?
     @ObservationIgnored private var keepalive: Task<Void, Never>?
-    @ObservationIgnored private var sftpClient: SFTPClient?
+    /// In flight or done, so concurrent callers share one SFTP channel.
+    @ObservationIgnored private var sftpTask: Task<SFTPClient, Error>?
     @ObservationIgnored private var size = (cols: 80, rows: 24)
     /// Bumped by every login and teardown; a login that finds it changed is stale and closes what it opened.
     @ObservationIgnored private var attempt = 0
@@ -79,13 +80,17 @@ final class SSHSession {
         return try await connection.exec(command)
     }
 
-    /// Opened once per connection, on the same connection.
+    /// Opened once per connection, on the same connection; a failed open is tried again by the next call.
     func sftp() async throws -> SFTPClient {
-        if let sftpClient { return sftpClient }
         guard let connection else { throw SSHClientError.channelCreationFailed }
-        let client = try await connection.openSFTP()
-        if self.connection === connection { sftpClient = client }
-        return client
+        let task = sftpTask ?? Task { try await connection.openSFTP() }
+        sftpTask = task
+        do {
+            return try await task.value
+        } catch {
+            if sftpTask == task { sftpTask = nil }
+            throw error
+        }
     }
 
     func close() {
@@ -169,7 +174,7 @@ final class SSHSession {
         keepalive = nil
         input?.finish()
         input = nil
-        sftpClient = nil
+        sftpTask = nil
         connection?.close()
         connection = nil
     }
