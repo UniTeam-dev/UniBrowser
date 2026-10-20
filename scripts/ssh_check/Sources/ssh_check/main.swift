@@ -1,4 +1,6 @@
 // SSH checks that need Citadel. Run: swift run --package-path scripts/ssh_check
+// `--live` also logs in to the test server:
+//   docker compose -f scripts/ssh_check/docker-compose.yml up -d && swift run --package-path scripts/ssh_check ssh_check --live
 import Foundation
 
 let fixtures = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appending(path: "fixtures")
@@ -53,4 +55,122 @@ func checkKeys() {
     print("keys: ok")
 }
 
+@MainActor
+func waitFor(_ session: SSHSession, _ what: String, _ ok: (SSHSession.State) -> Bool) async {
+    for _ in 0..<400 where !ok(session.state) { try? await Task.sleep(for: .milliseconds(50)) }
+    precondition(ok(session.state), "\(what): state \(session.state)")
+}
+
+@MainActor
+func waitForOutput(_ out: () -> [UInt8], _ needle: [UInt8]) async {
+    func found() -> Bool { let o = out(); return o.indices.contains { o[$0...].starts(with: needle) } }
+    for _ in 0..<200 where !found() { try? await Task.sleep(for: .milliseconds(50)) }
+    precondition(found(), "output lacks \(String(decoding: needle, as: UTF8.self)): \(String(decoding: out(), as: UTF8.self))")
+}
+
+func shell(_ args: [String]) -> String {
+    let p = Process(), out = Pipe()
+    p.executableURL = URL(filePath: "/bin/sh")
+    p.arguments = ["-c"] + args
+    p.standardOutput = out
+    try! p.run()
+    p.waitUntilExit()
+    return String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+}
+
+@MainActor
+func checkSession() async {
+    let store = KnownHostsStore(fileURL: nil)
+    let server = SSHHost(address: "127.0.0.1", port: 2222, username: "test")
+    func session(_ host: SSHHost = server, _ secret: SSHSecret = SSHSecret(password: "test"), route: SSHRoute = .direct) -> SSHSession {
+        SSHSession(host: host, secret: secret, knownHosts: store, route: route)
+    }
+    precondition(SSHRoute.direct.label == "Напрямую" && SSHRoute.socks(host: "127.0.0.1", port: 1).label == "Через Mac")
+
+    // unknown host key: prompt, trust, stored with the ssh-keygen fingerprint
+    let first = session()
+    await first.connect(cols: 80, rows: 24)
+    guard case .hostKeyPrompt(let key, previous: nil) = first.state else { preconditionFailure("prompt: \(first.state)") }
+    first.answerHostKey(trust: true)
+    await waitFor(first, "trusted") { $0 == .connected }
+    precondition(store.all == [key] && key.hostPort == "127.0.0.1:2222")
+    let scanned = shell(["ssh-keyscan -t \(key.keyType) -p 2222 127.0.0.1 2>/dev/null | ssh-keygen -lf -"])
+    precondition(scanned.contains(" \(key.fingerprintSHA256) "), "\(scanned) vs \(key.fingerprintSHA256)")
+    precondition(key.publicKey.hasPrefix(key.keyType + " "))
+
+    // password login: exec and cwd
+    let hi = try! await first.exec("echo hi")
+    precondition(hi == "hi\n")
+    precondition(first.cwd == "/config", "cwd \(first.cwd ?? "nil")")
+
+    // PTY: raw bytes, resize
+    var out: [UInt8] = []
+    first.onOutput = { out += $0 }
+    first.send(Array("printf 'x\\303\\251y\\n'\n".utf8))
+    await waitForOutput({ out }, [0x78, 0xC3, 0xA9, 0x79])
+    first.resize(cols: 100, rows: 30)
+    first.send(Array("stty size\n".utf8))
+    await waitForOutput({ out }, Array("30 100".utf8))
+    first.close()
+    precondition(first.state == .closed)
+
+    // a trusted key skips the prompt; key login
+    let keyed = session(SSHHost(address: "127.0.0.1", port: 2222, username: "test", auth: .key), SSHSecret(privateKey: fixture("ed25519")))
+    await keyed.connect(cols: 80, rows: 24)
+    precondition(keyed.state == .connected, "key login: \(keyed.state)")
+    let whoami = try! await keyed.exec("whoami")
+    precondition(whoami == "test\n")
+    keyed.close()
+
+    // RSA keys are signed with ssh-rsa (SHA-1), which OpenSSH refuses
+    let rsa = session(SSHHost(address: "127.0.0.1", port: 2222, username: "test", auth: .key), SSHSecret(privateKey: fixture("rsa")))
+    await rsa.connect(cols: 80, rows: 24)
+    precondition(rsa.state == .failed("Сервер отклонил RSA-ключ (подпись SHA-1). Используйте ключ ed25519"), "rsa: \(rsa.state)")
+
+    // wrong password
+    let wrong = session(server, SSHSecret(password: "nope"))
+    await wrong.connect(cols: 80, rows: 24)
+    precondition(wrong.state == .failed("Сервер не принял пароль или ключ"), "wrong password: \(wrong.state)")
+
+    // closed port, unknown name
+    let closedPort = session(SSHHost(address: "127.0.0.1", port: 1, username: "test"))
+    await closedPort.connect(cols: 80, rows: 24)
+    precondition(closedPort.state == .failed("Сервер 127.0.0.1:1 отклонил подключение") || closedPort.state == .failed("Сервер не ответил за 15 с"), "port 1: \(closedPort.state)")
+    let noName = session(SSHHost(address: "no-such-host.invalid", username: "test"))
+    await noName.connect(cols: 80, rows: 24)
+    precondition(noName.state == .failed("Не удалось найти no-such-host.invalid"), "dns: \(noName.state)")
+
+    // SOCKS: ssh -D against the same container; nothing listening → «Нет связи с Mac»
+    let noProxy = session(route: .socks(host: "127.0.0.1", port: 1))
+    await noProxy.connect(cols: 80, rows: 24)
+    precondition(noProxy.state == .failed("Нет связи с Mac"), "no proxy: \(noProxy.state)")
+    let proxy = Process()
+    proxy.executableURL = URL(filePath: "/usr/bin/ssh")
+    proxy.arguments = ["-D", "1080", "-N", "-i", fixtures.appending(path: "ed25519").path, "-p", "2222",
+                       "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "test@127.0.0.1"]
+    try! proxy.run()
+    defer { proxy.terminate() }
+    try? await Task.sleep(for: .seconds(2))
+    let viaSocks = session(route: .socks(host: "127.0.0.1", port: 1080))
+    await viaSocks.connect(cols: 80, rows: 24)
+    precondition(viaSocks.state == .connected, "socks: \(viaSocks.state)")
+    let socks = try! await viaSocks.exec("echo socks")
+    precondition(socks == "socks\n")
+    let listening = shell(["lsof -nP -a -p \(getpid()) -iTCP -sTCP:LISTEN"])
+    precondition(listening.isEmpty, "relay still listening: \(listening)")
+    viaSocks.close()
+
+    // changed key: prompt with the previous one
+    store.trust(KnownHost(hostPort: key.hostPort, keyType: key.keyType, fingerprintSHA256: "SHA256:old",
+                          publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICR6Oht0ItGBTO2Nk97PrnrPNyWh2uw5ZUf5NU1vGd0k", addedAt: .now))
+    let changed = session()
+    await changed.connect(cols: 80, rows: 24)
+    guard case .hostKeyPrompt(let current, previous: let previous?) = changed.state else { preconditionFailure("changed: \(changed.state)") }
+    precondition(current.publicKey == key.publicKey && previous.fingerprintSHA256 == "SHA256:old")
+    changed.answerHostKey(trust: false)
+    precondition(changed.state == .closed && store.all.first?.fingerprintSHA256 == "SHA256:old")
+    print("session: ok")
+}
+
 checkKeys()
+if CommandLine.arguments.contains("--live") { await checkSession() }
