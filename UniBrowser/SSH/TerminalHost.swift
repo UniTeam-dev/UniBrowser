@@ -6,15 +6,26 @@ import SwiftUI
 final class SSHTerminalView: TerminalView {
     private weak var session: SSHSession?
     private let hostID: UUID
+    private let suggestions: SuggestionEngine
+    private var line = CommandLineModel()
+    /// The server's command list is asked for once per connection, at its first output.
+    private var commandsRequested = false
+    private var update: Task<Void, Never>?
+    private var popup: NSHostingView<SuggestionPopup>?
+    private var shown: [Suggestion] = []
+    private var selected = 0
+    /// Installed only while the popup shows, so hidden it never takes a key.
+    private var keyMonitor: Any?
 
-    init(session: SSHSession, hostID: UUID) {
+    init(session: SSHSession, hostID: UUID, suggestions: SuggestionEngine) {
         self.session = session
         self.hostID = hostID
+        self.suggestions = suggestions
         super.init(frame: NSRect(x: 0, y: 0, width: 640, height: 400),
                    font: .monospacedSystemFont(ofSize: Self.fontSize(for: hostID), weight: .regular))
         configureNativeColors()
         terminalDelegate = self
-        session.onOutput = { [weak self] bytes in self?.feed(byteArray: bytes[...]) }
+        session.onOutput = { [weak self] bytes in self?.received(bytes) }
     }
 
     required init?(coder: NSCoder) { nil }
@@ -27,6 +38,9 @@ final class SSHTerminalView: TerminalView {
         default: break
         }
         let terminal = getTerminal()
+        line = CommandLineModel()
+        commandsRequested = false
+        hideSuggestions()
         Task { await session.connect(cols: terminal.cols, rows: terminal.rows) }
     }
 
@@ -55,11 +69,112 @@ final class SSHTerminalView: TerminalView {
 
     func applyFontSize() {
         font = .monospacedSystemFont(ofSize: Self.fontSize(for: hostID), weight: .regular)
+        hideSuggestions()
+    }
+
+    // MARK: - Suggestions
+
+    private func received(_ bytes: [UInt8]) {
+        feed(byteArray: bytes[...])
+        if !commandsRequested {
+            commandsRequested = true
+            Task { await suggestions.loadCommands() }
+        }
+        let showed = line.showsSuggestions
+        line.isAlternateScreen = getTerminal().isCurrentBufferAlternate
+        line.echoed(bytes)
+        if line.showsSuggestions != showed { refreshSuggestions() }
+    }
+
+    private func typed(_ bytes: [UInt8]) {
+        for entered in line.typed(bytes) { suggestions.history.add(entered) }
+        refreshSuggestions()
+    }
+
+    /// Hides the list at once, and shows the new one 80 ms after typing stops (and the echo came back).
+    private func refreshSuggestions() {
+        update?.cancel()
+        hideSuggestions()
+        guard line.showsSuggestions, UserDefaults.standard.object(forKey: SettingsKeys.terminalSuggestions) as? Bool ?? true else { return }
+        let model = line, cwd = session?.cwd
+        update = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled, let list = await self?.suggestions.suggestions(for: model, cwd: cwd),
+                  !Task.isCancelled, let self, line.showsSuggestions, line.line == model.line else { return }
+            showSuggestions(list)
+        }
+    }
+
+    private func showSuggestions(_ list: [Suggestion]) {
+        guard !list.isEmpty else { return hideSuggestions() }
+        shown = list
+        selected = 0
+        let view = popup ?? NSHostingView(rootView: popupContent)
+        view.rootView = popupContent
+        if popup == nil {
+            popup = view
+            addSubview(view)
+        }
+        // SwiftTerm's cell: its `cellDimension` is internal, so measured the way it does.
+        let cellHeight = ceil(CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font))
+        let cellWidth = font.advancement(forGlyph: font.glyph(withName: "W")).width
+        let cursor = getTerminal().getCursorLocation()
+        let fitting = view.fittingSize
+        let size = CGSize(width: min(fitting.width, 480), height: fitting.height)
+        // Not flipped: row 0 is at the top. Below the cursor's row, or above it when there's no room.
+        var y = bounds.height - cellHeight * CGFloat(cursor.y + 1) - size.height
+        if y < 0 { y = bounds.height - cellHeight * CGFloat(cursor.y) }
+        let x = max(0, min(CGFloat(cursor.x) * cellWidth, bounds.width - size.width))
+        view.frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
+        if keyMonitor == nil {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                self?.handleKey(event) ?? event
+            }
+        }
+    }
+
+    private var popupContent: SuggestionPopup {
+        SuggestionPopup(suggestions: shown, selected: selected, fontSize: max(font.pointSize - 1, 9))
+    }
+
+    private func hideSuggestions() {
+        popup?.removeFromSuperview()
+        popup = nil
+        shown = []
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+    }
+
+    /// ↑/↓ move, Tab or → accept, Esc hides. Anything else, or a key with a modifier, goes to the shell.
+    /// The popup only shows for a line we followed key by key, so the cursor is at its end and → can accept.
+    private func handleKey(_ event: NSEvent) -> NSEvent? {
+        guard !shown.isEmpty, event.window === window, window?.firstResponder === self,
+              event.modifierFlags.isDisjoint(with: [.command, .option, .control, .shift]) else { return event }
+        switch event.keyCode {
+        case 126: selected = (selected + shown.count - 1) % shown.count
+        case 125: selected = (selected + 1) % shown.count
+        case 48, 124:
+            let insert = shown[selected].insert
+            session?.send(Array(insert.utf8))
+            line.accepted(insert)
+            refreshSuggestions()
+            return nil
+        case 53:
+            update?.cancel()
+            hideSuggestions()
+            return nil
+        default: return event
+        }
+        popup?.rootView = popupContent
+        return nil
     }
 }
 
 extension SSHTerminalView: @preconcurrency TerminalViewDelegate {
-    func send(source: TerminalView, data: ArraySlice<UInt8>) { session?.send(Array(data)) }
+    func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        session?.send(Array(data))
+        typed(Array(data))
+    }
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) { session?.resize(cols: newCols, rows: newRows) }
 

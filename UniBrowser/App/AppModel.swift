@@ -20,8 +20,17 @@ final class AppModel {
     /// Saved SSH servers (secrets in the keychain) and the server keys the user trusted.
     let sshHosts = SSHHostStore(fileURL: LibraryFiles.url("ssh-hosts.json"), secrets: SSHSecretStore())
     let knownHosts = KnownHostsStore(fileURL: LibraryFiles.url("known-hosts.json"))
+    /// Command history per SSH host, shared by that host's tabs so they don't overwrite each other's saves.
+    @ObservationIgnored private var sshHistories: [UUID: CommandHistory] = [:]
 
     var paletteMode: PaletteMode?
+
+    func sshHistory(for hostID: UUID) -> CommandHistory {
+        if let history = sshHistories[hostID] { return history }
+        let history = CommandHistory(fileURL: LibraryFiles.url("ssh-history/\(hostID.uuidString.lowercased()).json"))
+        sshHistories[hostID] = history
+        return history
+    }
     /// The sidebar as a 56 pt column of icons instead of the 290 pt list; kept across launches.
     var isSidebarCompact = UserDefaults.standard.bool(forKey: "sidebarCompact") {
         didSet { UserDefaults.standard.set(isSidebarCompact, forKey: "sidebarCompact") }

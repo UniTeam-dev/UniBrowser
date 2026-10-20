@@ -28,7 +28,8 @@ struct SSHTabView: View {
             // Wakes on appear, and again if the tab is put to sleep while on screen.
             .task(id: tab.sshSession == nil) {
                 guard tab.sshSession == nil else { return }
-                tab.wakeSSH(host: host, secret: model.sshHosts.secret(for: hostID), knownHosts: model.knownHosts)
+                tab.wakeSSH(host: host, secret: model.sshHosts.secret(for: hostID), knownHosts: model.knownHosts,
+                            history: model.sshHistory(for: hostID))
                 tab.sshTerminal?.connect()
             }
             .onChange(of: host.displayName, initial: true) { tab.title = host.displayName }

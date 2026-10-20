@@ -473,6 +473,101 @@ func checkSFTP() async {
     print("sftp: ok")
 }
 
+@MainActor
+func checkSuggestions() async {
+    let session = SSHSession(host: SSHHost(address: "127.0.0.1", port: 2222, username: "test"), secret: SSHSecret(password: "test"),
+                             knownHosts: KnownHostsStore(fileURL: nil), route: .direct)
+    for _ in 0..<60 where session.state != .connected {
+        await session.connect(cols: 80, rows: 24)
+        if case .hostKeyPrompt = session.state { session.answerHostKey(trust: true) }
+        for _ in 0..<100 where session.state == .connecting { try? await Task.sleep(for: .milliseconds(50)) }
+        if session.state != .connected { try? await Task.sleep(for: .seconds(1)) }
+    }
+    precondition(session.state == .connected, "login: \(session.state)")
+    _ = try! await session.exec("touch ~/.bashrc; rm -rf ~/'тест под сказки'; mkdir ~/'тест под сказки'")
+
+    let cache = FileManager.default.temporaryDirectory.appending(path: "ssh_check-\(UUID().uuidString)/commands.json")
+    let history = CommandHistory(fileURL: nil)
+    let engine = SuggestionEngine(session: session, browser: SFTPBrowser(session: session), history: history, commandsCacheURL: cache)
+    await engine.loadCommands()
+    func model(_ line: String) -> CommandLineModel {
+        var m = CommandLineModel()
+        m.typed(Array(line.utf8))
+        m.echoed(Array(line.utf8))
+        return m
+    }
+    func suggest(_ line: String) async -> [Suggestion] { await engine.suggestions(for: model(line), cwd: session.cwd) }
+
+    // commands from compgen, cached
+    var s = await suggest("l")
+    precondition(s.contains(Suggestion(kind: .command, display: "ls", insert: "s")), "l: \(s)")
+    s = await suggest("ca")
+    precondition(s.contains(Suggestion(kind: .command, display: "cat", insert: "t")), "ca: \(s)")
+    precondition(s.count <= 8, "at most 8")
+    // saved in the background
+    for _ in 0..<100 where !FileManager.default.fileExists(atPath: cache.path) { try? await Task.sleep(for: .milliseconds(20)) }
+    let cached = try! JSONDecoder().decode([String].self, from: Data(contentsOf: cache))
+    precondition(cached.contains("ls") && cached == cached.sorted() && Set(cached).count == cached.count, "cache")
+    // a fresh cache is used as is; one older than 24 h is fetched again
+    try! JSONEncoder().encode(["lsfake"]).write(to: cache)
+    let fromCache = SuggestionEngine(session: session, browser: SFTPBrowser(session: session), history: history, commandsCacheURL: cache)
+    await fromCache.loadCommands()
+    s = await fromCache.suggestions(for: model("l"), cwd: session.cwd)
+    precondition(s.map(\.display) == ["lsfake"], "fresh cache: \(s)")
+    try! FileManager.default.setAttributes([.modificationDate: Date.now.addingTimeInterval(-25 * 3600)], ofItemAtPath: cache.path)
+    let stale = SuggestionEngine(session: session, browser: SFTPBrowser(session: session), history: history, commandsCacheURL: cache)
+    await stale.loadCommands()
+    s = await stale.suggestions(for: model("l"), cwd: session.cwd)
+    precondition(s.contains { $0.display == "ls" } && !s.contains { $0.display == "lsfake" }, "stale cache: \(s)")
+
+    // paths: absolute, ~, cwd-relative with the word's own quoting
+    s = await suggest("ls /et")
+    precondition(s.contains(Suggestion(kind: .path, display: "etc/", insert: "c/")), "/et: \(s)")
+    s = await suggest("cat ~/.bas")
+    precondition(s.contains(Suggestion(kind: .path, display: ".bashrc", insert: "hrc")), "~/.bas: \(s)")
+    s = await suggest("ls \"тест п")
+    precondition(s.contains(Suggestion(kind: .path, display: "тест под сказки/", insert: "од сказки/")), "quoted: \(s)")
+    s = await suggest("ls тест\\ п")
+    precondition(s.contains(Suggestion(kind: .path, display: "тест под сказки/", insert: "од\\ сказки/")), "escaped: \(s)")
+    s = await suggest("ls -")
+    precondition(!s.contains { $0.kind == .path }, "options are not paths: \(s)")
+
+    // history first
+    history.add("ls -la /etc")
+    s = await suggest("ls -")
+    precondition(s.first == Suggestion(kind: .history, display: "ls -la /etc", insert: "la /etc"), "history: \(s)")
+
+    // the real shell's echo: typed input shows suggestions, a sudo password prompt (no echo) hides them and isn't saved
+    var m = CommandLineModel()
+    var out: [UInt8] = []
+    session.onOutput = { out += $0; m.echoed($0) }
+    func type(_ text: String) -> [String] {
+        session.send(Array(text.utf8))
+        return m.typed(Array(text.utf8))
+    }
+    // the prompt came long ago, during the checks above
+    _ = type("x"); _ = type("\u{7F}"); _ = type("sudo -k; sudo ls")
+    for _ in 0..<100 where !m.showsSuggestions { try? await Task.sleep(for: .milliseconds(50)) }
+    precondition(m.showsSuggestions && m.line == "sudo -k; sudo ls", "echoed: \(m.line ?? "nil") \(String(decoding: out, as: UTF8.self))")
+    precondition(type("\r") == ["sudo -k; sudo ls"], "command saved")
+    await waitForOutput({ out }, Array("password".utf8))
+    _ = type("secret")
+    try? await Task.sleep(for: .seconds(1))
+    precondition(m.line == "secret" && !m.showsSuggestions, "password prompt: no suggestions")
+    precondition(type("\r") == [], "password not saved")
+    out = []
+    _ = type("\u{3}")
+    await waitForOutput({ out }, Array("$ ".utf8))
+    _ = type("echo ok")
+    for _ in 0..<100 where !m.showsSuggestions { try? await Task.sleep(for: .milliseconds(50)) }
+    precondition(m.showsSuggestions, "echo back after the prompt: \(String(decoding: out, as: UTF8.self))")
+
+    _ = try! await session.exec("rm -rf ~/'тест под сказки'")
+    try? FileManager.default.removeItem(at: cache.deletingLastPathComponent())
+    session.close()
+    print("suggestions: ok")
+}
+
 setvbuf(stdout, nil, _IONBF, 0)
 // Citadel logs every SFTP request at info; the drop check makes it log errors on purpose.
 LoggingSystem.bootstrap { _ in SwiftLogNoOpLogHandler() }
@@ -481,4 +576,5 @@ checkPaths()
 if CommandLine.arguments.contains("--live") {
     await checkSession()
     await checkSFTP()
+    await checkSuggestions()
 }
