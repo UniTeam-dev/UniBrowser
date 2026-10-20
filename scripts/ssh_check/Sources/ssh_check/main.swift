@@ -122,6 +122,23 @@ func checkSession() async {
     precondition(whoami == "test\n")
     keyed.close()
 
+    // close() during a login, then connect again: the first login's connection must not survive
+    func serverSessions() -> Int {
+        Int(shell(["docker exec ssh_check-ssh-1 ps ax -o args | grep -c '^sshd-session.*: test \\[priv\\]'"]).trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1
+    }
+    for _ in 0..<100 where serverSessions() > 0 { try? await Task.sleep(for: .milliseconds(100)) }
+    precondition(serverSessions() == 0, "sessions left before the restart check")
+    let restarted = session()
+    Task { await restarted.connect(cols: 80, rows: 24) }
+    await Task.yield()
+    precondition(restarted.state == .connecting, "restart: \(restarted.state)")
+    restarted.close()
+    await restarted.connect(cols: 80, rows: 24)
+    precondition(restarted.state == .connected, "restart: \(restarted.state)")
+    try? await Task.sleep(for: .seconds(3))
+    precondition(serverSessions() == 1, "restart: \(serverSessions()) server sessions")
+    restarted.close()
+
     // RSA keys are signed with ssh-rsa (SHA-1), which OpenSSH refuses
     let rsa = session(SSHHost(address: "127.0.0.1", port: 2222, username: "test", auth: .key), SSHSecret(privateKey: fixture("rsa")))
     await rsa.connect(cols: 80, rows: 24)

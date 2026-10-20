@@ -32,6 +32,8 @@ final class SSHSession {
     @ObservationIgnored private var keepalive: Task<Void, Never>?
     @ObservationIgnored private var sftpClient: SFTPClient?
     @ObservationIgnored private var size = (cols: 80, rows: 24)
+    /// Bumped by every login and teardown; a login that finds it changed is stale and closes what it opened.
+    @ObservationIgnored private var attempt = 0
 
     init(host: SSHHost, secret: SSHSecret, knownHosts: KnownHostsStore, route: SSHRoute) {
         self.host = host
@@ -94,19 +96,21 @@ final class SSHSession {
     // MARK: - Connection
 
     private func open() async {
-        let check = HostKeyCheck { [weak self] key in await self?.accept(hostKey: key) ?? false }
+        attempt += 1
+        let mine = attempt
+        let check = HostKeyCheck { [weak self] key in await self?.accept(hostKey: key, attempt: mine) ?? false }
         let connection: SSHConnection
         do {
             connection = try await SSHConnection.open(host: host, secret: secret, route: route, hostKeyCheck: check)
         } catch {
-            // A host-key prompt or `close()` already set the state.
-            if state == .connecting { state = .failed(message(for: error)) }
+            // A host-key prompt, `close()` or a newer login already set the state.
+            if mine == attempt, state == .connecting { state = .failed(message(for: error)) }
             return
         }
-        guard state == .connecting else { connection.close(); return }
+        let cwd = (try? await connection.exec("pwd"))?.trimmingCharacters(in: .newlines)
+        guard mine == attempt, state == .connecting else { connection.close(); return }
         self.connection = connection
-        cwd = (try? await connection.exec("pwd"))?.trimmingCharacters(in: .newlines)
-        guard state == .connecting, self.connection === connection else { return }
+        self.cwd = cwd
         startPTY(connection)
         startKeepalive(connection)
         state = .connected
@@ -117,12 +121,24 @@ final class SSHSession {
         input = continuation
         let size = size
         Task { [weak self] in
-            try? await connection.runPTY(cols: size.cols, rows: size.rows, input: stream) { [weak self] bytes in
-                await self?.deliver(bytes)
+            var refused = false
+            do {
+                try await connection.runPTY(cols: size.cols, rows: size.rows, input: stream) { [weak self] bytes in
+                    await self?.deliver(bytes)
+                }
+            } catch {
+                refused = true
             }
-            // The shell exited on a live connection, or the connection dropped.
+            // The shell exited, the server refused the PTY, or the connection dropped.
             guard let self, self.connection === connection else { return }
-            if connection.client.isConnected { close() } else { lost() }
+            if !connection.client.isConnected {
+                lost()
+            } else if refused {
+                teardown()
+                state = .failed("Сервер не открыл терминал")
+            } else {
+                close()
+            }
         }
     }
 
@@ -148,6 +164,7 @@ final class SSHSession {
     }
 
     private func teardown() {
+        attempt += 1
         keepalive?.cancel()
         keepalive = nil
         input?.finish()
@@ -162,8 +179,8 @@ final class SSHSession {
     }
 
     /// `line` is "<type> <base64>". Unknown or changed keys turn into a prompt and fail this login.
-    private func accept(hostKey line: String) -> Bool {
-        guard state == .connecting else { return false }
+    private func accept(hostKey line: String, attempt: Int) -> Bool {
+        guard attempt == self.attempt, state == .connecting else { return false }
         let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2, let blob = Data(base64Encoded: parts[1]) else { return false }
         let fingerprint = "SHA256:" + Data(SHA256.hash(data: blob)).base64EncodedString().replacingOccurrences(of: "=", with: "")
@@ -271,14 +288,24 @@ private final class SSHConnection: @unchecked Sendable {
                 proxy.close(promise: nil)
                 throw error
             }
-            let listener = try await ServerBootstrap(group: loop)
-                .childChannelInitializer { child in
-                    return child.eventLoop.makeCompletedFuture {
-                        try child.pipeline.syncOperations.addHandler(Forward(peer: proxy))
-                        try proxy.pipeline.syncOperations.handler(type: SOCKSRelay.self).connect(child)
+            let listener: Channel
+            do {
+                listener = try await ServerBootstrap(group: loop)
+                    .childChannelInitializer { child in
+                        child.eventLoop.makeCompletedFuture {
+                            // A second connection in the same accept loop is closed, never piped.
+                            guard try proxy.pipeline.syncOperations.handler(type: SOCKSRelay.self).connect(child) else {
+                                child.close(promise: nil)
+                                return
+                            }
+                            try child.pipeline.syncOperations.addHandler(Forward(peer: proxy))
+                        }
                     }
-                }
-                .bind(host: "127.0.0.1", port: 0).get()
+                    .bind(host: "127.0.0.1", port: 0).get()
+            } catch {
+                proxy.close(promise: nil)
+                throw error
+            }
             // Nobody came: drop both.
             loop.scheduleTask(in: .seconds(15)) { if listener.isActive { listener.close(promise: nil); proxy.close(promise: nil) } }
             return listener.localAddress?.port ?? 0
@@ -340,11 +367,14 @@ private final class SOCKSRelay: ChannelInboundHandler {
 
     init(_ ready: EventLoopPromise<Void>) { self.ready = ready }
 
-    func connect(_ peer: Channel) {
+    /// False if a peer is already connected.
+    func connect(_ peer: Channel) -> Bool {
+        guard self.peer == nil else { return false }
         self.peer = peer
         for buffer in pending { peer.write(buffer, promise: nil) }
         peer.flush()
         pending = []
+        return true
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
