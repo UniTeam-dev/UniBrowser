@@ -54,7 +54,7 @@ struct SSHTabView: View {
         card {
             Text(message).font(.headline).multilineTextAlignment(.center)
             HStack {
-                Button("Изменить сервер") { model.isPasswordsVisible = true }
+                Button("Изменить сервер") { model.passwordsSSHHost = hostID; model.isPasswordsVisible = true }
                 Button("Переподключиться  ⌘R") { tab.sshTerminal?.connect() }
                     .buttonStyle(.borderedProminent)
                     .tint(Palette.accent)

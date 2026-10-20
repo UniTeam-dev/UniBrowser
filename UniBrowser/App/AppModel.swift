@@ -29,6 +29,8 @@ final class AppModel {
     var isArchiveVisible = false
     var isExtensionsVisible = false
     var isPasswordsVisible = false
+    /// Set with `isPasswordsVisible`: open the «SSH» section on this host's form (a failed SSH tab's «Изменить сервер»).
+    var passwordsSSHHost: UUID?
     /// «Файл → Импорт…»; also offered once on the first launch.
     var isImportVisible = false
     /// The ☆ / ⌘D bookmark editor in the address strip.
@@ -71,6 +73,10 @@ final class AppModel {
         self.isPrivate = isPrivate
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords, siteSettings: siteSettings, isPrivate: isPrivate))
         installTabSwitcherMonitor()
+        sshHosts.onRemoved = { [weak self] ids in
+            guard let store = self?.store else { return }
+            for tab in store.tabs.values where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
+        }
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
         guard !isPrivate else { return } // a private window keeps no history and isn't mirrored
         history.pruneForRetentionSetting()

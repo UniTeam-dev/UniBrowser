@@ -12,6 +12,8 @@ final class SSHHostStore {
     @ObservationIgnored let fileURL: URL?
     @ObservationIgnored let secrets: SSHSecretStore
     @ObservationIgnored var onLocalChange: (() -> Void)?
+    /// Ids of hosts that just stopped being live (deleted here or by a merge); open tabs on them must close.
+    @ObservationIgnored var onRemoved: (([UUID]) -> Void)?
 
     /// `fileURL` nil keeps the hosts in memory only.
     init(fileURL: URL?, secrets: SSHSecretStore) {
@@ -55,6 +57,7 @@ final class SSHHostStore {
         all[index].modifiedAt = .now
         secrets.delete(id)
         changed()
+        onRemoved?([id])
     }
 
     // MARK: - Sync
@@ -68,6 +71,7 @@ final class SSHHostStore {
     @discardableResult
     func merge(_ remote: [SyncedSSHHost]) -> Bool {
         let local = synced()
+        let liveBefore = Set(all.filter { !$0.deleted }.map(\.id))
         let result = SSHHostMerge.pruned(SSHHostMerge.merged(local, remote), now: .now)
         guard result != local else { return false }
         let localByID = Dictionary(local.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -87,6 +91,8 @@ final class SSHHostStore {
         guard adopted != local else { return false }
         all = adopted.map(\.host)
         save()
+        let removed = liveBefore.subtracting(all.filter { !$0.deleted }.map(\.id))
+        if !removed.isEmpty { onRemoved?(Array(removed)) }
         return true
     }
 

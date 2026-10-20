@@ -88,7 +88,7 @@ struct AddressStrip: View {
             if tab?.isLoading == true {
                 iconButton("xmark", label: "Остановить") { tab?.webView?.stopLoading() }
             } else {
-                iconButton("arrow.clockwise", label: tab?.isSSH == true ? "Переподключиться" : "Обновить", enabled: tab?.url != nil) { tab?.reload() }
+                iconButton("arrow.clockwise", label: tab?.isSSH == true ? "Переподключиться" : "Обновить", enabled: tab?.url != nil && tab?.url?.sshHostID.map { model.sshHosts.host($0) != nil } != false) { tab?.reload() }
             }
             if let id = tab?.url?.sshHostID {
                 sshAddress(model.sshHosts.host(id))

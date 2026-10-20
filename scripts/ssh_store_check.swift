@@ -46,8 +46,11 @@ struct SSHStoreCheck {
         precondition(secrets.read(host.id)?.password == "pw2", "merge writes keychain")
 
         // delete
+        var removed: [UUID] = []
+        store.onRemoved = { removed += $0 }
         store.delete(host.id)
         store.delete(other.id)
+        precondition(removed == [host.id, other.id], "delete reports removed hosts")
         precondition(store.live.isEmpty && store.all.count == 2, "tombstones kept")
         precondition(secrets.read(host.id) == nil, "keychain emptied")
 
@@ -60,7 +63,9 @@ struct SSHStoreCheck {
         gone.host.deleted = true
         gone.host.modifiedAt = fresh.host.modifiedAt.addingTimeInterval(10)
         gone.secret = SSHSecret()
+        removed = []
         precondition(store.merge([gone]) && secrets.read(fresh.id) == nil && store.host(fresh.id) == nil, "remote tombstone")
+        precondition(removed == [fresh.id], "merged tombstone reports removed host")
 
         // a failing keychain: save throws and changes nothing; merge keeps the local version
         let broken = SSHHostStore(fileURL: nil, secrets: SSHSecretStore(service: "app.unibrowser.ssh.check", failsWrites: true))
