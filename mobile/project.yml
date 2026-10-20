@@ -20,7 +20,7 @@ packages:
     exactVersion: 0.12.1
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
-    exactVersion: 1.20.0
+    exactVersion: 1.11.2
   NIOExtras:
     # NIOSOCKS: SSHSession (Shared/SSH) compiles into both apps.
     url: https://github.com/apple/swift-nio-extras
