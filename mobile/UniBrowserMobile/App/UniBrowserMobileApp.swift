@@ -21,8 +21,10 @@ struct UniBrowserMobileApp: App {
                     switch phase {
                     case .active:
                         model.relay.appBecameActive()
+                        model.resumeSSHSessions()
                     case .background:
                         model.saveAll()
+                        model.closeSSHSessionsForBackground()
                         model.relay.appWentToBackground()
                     default:
                         break

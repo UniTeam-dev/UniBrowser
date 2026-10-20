@@ -14,6 +14,7 @@ struct SettingsSheet: View {
     @AppStorage("appearance") private var appearance = Appearance.system
     @AppStorage(SettingsKeys.historyRetentionDays) private var retention = 90
     @AppStorage(SettingsKeys.adBlockingEnabled) private var adBlocking = true
+    @AppStorage(SettingsKeys.terminalSuggestions) private var terminalSuggestions = true
     @State private var confirmClear = false
     @State private var cleared = false
 
@@ -51,6 +52,17 @@ struct SettingsSheet: View {
                 SitePermissionsSection(settings: model.siteSettings)
                 Section("Пароли") {
                     LabeledContent("С Mac и сохранённые здесь", value: "\(model.passwords.all.count)")
+                }
+                Section("SSH") {
+                    NavigationLink {
+                        SSHHostsSettings { id in
+                            dismiss()
+                            model.store.openSSH(id)
+                        }
+                    } label: {
+                        LabeledContent("SSH-серверы", value: "\(model.sshHosts.live.count)")
+                    }
+                    Toggle("Подсказки в терминале", isOn: $terminalSuggestions)
                 }
                 Section("Через Mac") {
                     Button("Настройки «Через Mac»") {

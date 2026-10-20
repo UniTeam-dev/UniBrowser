@@ -1,0 +1,24 @@
+# Test SSH server for `ssh_check --live`. Test-only credentials.
+#   docker compose -f scripts/ssh_check/docker-compose.yml up -d
+services:
+  ssh:
+    image: lscr.io/linuxserver/openssh-server:10.3_p1-r1-ls239
+    ports: ["127.0.0.1:2222:2222"]
+    environment:
+      USER_NAME: test
+      USER_PASSWORD: test
+      PASSWORD_ACCESS: "true"
+      PUBLIC_KEY: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICR6Oht0ItGBTO2Nk97PrnrPNyWh2uw5ZUf5NU1vGd0k fixture"
+    configs:
+      - source: setup
+        target: /custom-cont-init.d/setup.sh
+        mode: 0755
+configs:
+  setup:
+    content: |
+      #!/bin/sh
+      # bash login shell for `test` (autocomplete needs compgen), the fixture RSA key, `ssh -D` for the SOCKS check.
+      apk add --no-cache bash
+      sed -i 's#^\(test:.*:\)[^:]*$$#\1/bin/bash#' /etc/passwd
+      grep -q ssh-rsa /config/.ssh/authorized_keys || echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCnAgP2smU01zJTUqYn1iDw1Y63zjr9XkYtLg6AU2RMpfnAA5Yo+OKVkFkWtFeJFkQoGgozaBEv0JqNZAHkqJRD9gJWZHhGbzH81dX4b9DVG3OsjhFAs1pYNtSGgJW12uAYqqDWN58ob6uSCv9lQ44TWosZXJbah0CiV6kd9KPdoN4yecjmh27CGstQCzw9WC1q34PHjOZDVabZ+s0xoejotRVC8iwLhFxGlGPU8xsmnOsY29wpHZhZuY/rXW9zTXr3TSSffiTWRSWMftlYaxInALA9Ezq3iUlrSTQzxxzQX/JVv3JvHWxjRs+YI6Vw4S8615OJ2AFLYHB1+xF6/7a/ fixture" >> /config/.ssh/authorized_keys
+      sed -i 's/^AllowTcpForwarding no/AllowTcpForwarding yes/' /config/sshd/sshd_config

@@ -57,12 +57,24 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var controller: TabWebController?
     @ObservationIgnored private var audioObserver: NSObject?
 
-    /// Mirrors `webView == nil` so views redraw when a tab sleeps or wakes.
+    /// The connection of an `unibrowser-ssh` tab while it is awake.
+    private(set) var sshSession: SSHSession?
+    /// Its terminal, kept with the session so switching tabs keeps the screen.
+    @ObservationIgnored private(set) var sshTerminal: SSHTerminalView?
+    /// Its «Файлы» panel and transfers, kept while the panel is hidden.
+    private(set) var sshFiles: SFTPBrowser?
+    /// ⌘⇧F.
+    var isFilesVisible = false
+
+    /// Mirrors `webView == nil` (or `sshSession == nil`) so views redraw when a tab sleeps or wakes.
     private(set) var isAsleep = true
+
+    var isSSH: Bool { url?.sshHostID != nil }
 
     var displayTitle: String {
         if let customTitle { return customTitle }
         if !title.isEmpty { return title }
+        if isSSH { return "SSH" }
         return url?.host() ?? "Новая вкладка"
     }
 
@@ -76,9 +88,10 @@ final class BrowserTab: Identifiable {
     }
 
     /// Returns the live web view, creating it (and loading `url`) if the tab was asleep,
-    /// with the cookies and site data of the space the tab is in.
-    func wake(environment: WebEnvironment) -> WKWebView {
+    /// with the cookies and site data of the space the tab is in. Never for an SSH tab.
+    func wake(environment: WebEnvironment) -> WKWebView? {
         if let webView { return webView }
+        guard !isSSH else { return nil }
 
         let controller = TabWebController(tab: self, environment: environment)
         let devTools = DevToolsSession()
@@ -131,8 +144,35 @@ final class BrowserTab: Identifiable {
         return webView
     }
 
-    /// Frees the web view. The tab keeps its URL and title and reloads on the next wake.
+    /// Opens the SSH tab's session and terminal; the view then connects. The Mac always goes direct.
+    /// Every login reads the host and secret from `hosts`, so a reconnect uses what is stored by then.
+    func wakeSSH(hostID: UUID, hosts: SSHHostStore, knownHosts: KnownHostsStore, history: CommandHistory) {
+        guard sshSession == nil else { return }
+        let session = SSHSession(knownHosts: knownHosts) { [weak hosts] in
+            guard let hosts, let host = hosts.host(hostID) else { return nil }
+            return (host, hosts.secret(for: hostID), .direct)
+        }
+        let files = SFTPBrowser(session: session)
+        let suggestions = SuggestionEngine(session: session, browser: files, history: history,
+                                           commandsCacheURL: LibraryFiles.url("ssh-commands/\(hostID.uuidString.lowercased()).json"))
+        sshTerminal = SSHTerminalView(session: session, hostID: hostID, suggestions: suggestions)
+        sshFiles = files
+        sshSession = session
+        isAsleep = false
+    }
+
+    /// ⌘R: reloads the page; an SSH tab that isn't connected logs in again.
+    func reload() {
+        if let sshTerminal { sshTerminal.connect() } else if !isSSH { webView?.reload() } // an SSH tab without a terminal has no host: nothing to do
+    }
+
+    /// Frees the web view or closes the SSH session. The tab keeps its URL and title and reloads on the next wake.
     func sleep() {
+        sshSession?.close()
+        sshSession = nil
+        sshTerminal?.removeFromSuperview()
+        sshTerminal = nil
+        sshFiles = nil
         permissionRequest?.cancel()
         permissionRequest = nil
         observations.removeAll()
@@ -187,6 +227,9 @@ final class BrowserTab: Identifiable {
     var isAwayFromPin: Bool { pinnedURL != nil && pinnedURL != url }
 
     func load(_ url: URL) {
+        guard !url.isSSHScheme else { return } // SSH tabs are made by `BrowserStore.openSSH` only
+        // Between a page and an SSH host the tab sleeps; the view for the new kind wakes it.
+        if isSSH { sleep() }
         self.url = url
         webView?.load(URLRequest(url: url))
     }

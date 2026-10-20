@@ -13,9 +13,9 @@ import Security
 enum ViaMacProtocol {
     /// Bumped whenever the sync messages change: two different versions refuse
     /// each other cleanly instead of failing to decode.
-    static let alpn = Data("unibrowser/via-mac/2".utf8)
-    /// The previous version, accepted only to tell the other side to update.
-    static let legacyAlpn = Data("unibrowser/via-mac/1".utf8)
+    static let alpn = Data("unibrowser/via-mac/3".utf8)
+    /// Previous versions, newest first, accepted only to tell the other side to update.
+    static let legacyAlpns = [Data("unibrowser/via-mac/2".utf8), Data("unibrowser/via-mac/1".utf8)]
     static let maxControlMessage: UInt32 = 4 << 20
     static let maxSyncFrame: UInt32 = 32 << 20
     /// How long a QR code from the Mac stays valid.
@@ -157,8 +157,9 @@ struct SyncedCredential: Codable, Hashable, Sendable, Identifiable {
 enum SyncMessage: Codable, Sendable {
     /// Phone → Mac, once per connection: the phone's session, the last session
     /// both sides agreed on (nil before the first sync), logins saved on
-    /// the phone that the Mac may not have yet, and the phone's bookmarks.
-    case hello(session: SessionSnapshot, base: SessionSnapshot?, savedPasswords: [SyncedCredential], bookmarks: [Bookmark])
+    /// the phone that the Mac may not have yet, the phone's bookmarks, SSH hosts and trusted server keys.
+    case hello(session: SessionSnapshot, base: SessionSnapshot?, savedPasswords: [SyncedCredential], bookmarks: [Bookmark],
+               sshHosts: [SyncedSSHHost], knownHosts: [KnownHost])
     /// Either way: the sender's whole session after a change.
     case session(SessionSnapshot)
     /// Like `session`, but without space pictures because none changed since
@@ -173,6 +174,10 @@ enum SyncMessage: Codable, Sendable {
     /// any change (and from the Mac once after hello). The receiver merges and,
     /// if its result differs from what it got, sends its own list back.
     case bookmarks([Bookmark])
+    /// Either way, like `bookmarks`: the sender's SSH hosts with their secrets, tombstones included.
+    case sshHosts([SyncedSSHHost])
+    /// Either way, like `bookmarks`: the sender's trusted server keys.
+    case knownHosts([KnownHost])
     /// Either way: visits since the last batch sent to this peer, at most every 5 s.
     case history([Visit])
 }

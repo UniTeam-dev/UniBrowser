@@ -174,7 +174,7 @@ actor SyncChannel {
     func write(_ message: SyncMessage) async throws {
         var message = message
         switch message {
-        case .hello(let session, _, _, _):
+        case .hello(let session, _, _, _, _, _):
             sentImages = session.spaceImages
         case .session(let session):
             let images = session.spaceImages
@@ -206,7 +206,7 @@ actor SyncChannel {
         guard length <= ViaMacProtocol.maxSyncFrame else { throw ViaMacError.frameTooLarge }
         let message = try JSONDecoder().decode(SyncMessage.self, from: try await reader.read(Int(length)))
         switch message {
-        case .hello(let session, _, _, _), .session(let session):
+        case .hello(let session, _, _, _, _, _), .session(let session):
             receivedImages = session.spaceImages
             return message
         case .sessionKeepingImages(let session):

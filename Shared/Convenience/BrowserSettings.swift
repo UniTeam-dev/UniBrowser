@@ -110,5 +110,7 @@ enum SettingsKeys {
     static let adBlockingEnabled = "adBlockEnabled" // ContentBlocker.enabledKey
     static let readerFontSize = "readerFontSize"
     static let readerTheme = "readerTheme"
+    /// «Подсказки в терминале» in SSH tabs (missing = on).
+    static let terminalSuggestions = "terminalSuggestions"
 }
 

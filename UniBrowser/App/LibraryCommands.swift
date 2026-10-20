@@ -65,7 +65,7 @@ extension BrowserStore {
     /// History, bookmarks and their menus: a plain open replaces the current page,
     /// `newTab` opens a tab next to it, `background` leaves the current one selected.
     func openFromLibrary(_ url: URL, newTab: Bool = false, background: Bool = false) {
-        if !newTab, !background, let tab = selectedTab {
+        if !newTab, !background, let tab = selectedTab, !tab.isSSH {
             tab.load(url)
         } else {
             self.newTab(url: url, select: !background)

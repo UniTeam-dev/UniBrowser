@@ -87,6 +87,8 @@ final class ViaMacHost {
     @ObservationIgnored private var passwordsWatch: Task<Void, Never>?
     @ObservationIgnored private var history: HistoryStore?
     @ObservationIgnored private var bookmarks: BookmarkStore?
+    @ObservationIgnored private var sshHosts: SSHHostStore?
+    @ObservationIgnored private var knownHosts: KnownHostsStore?
     @ObservationIgnored private var historyPump: Task<Void, Never>?
 
     private enum Keys {
@@ -107,16 +109,29 @@ final class ViaMacHost {
     }
 
     /// Called once from AppModel; starts serving if the user left it on.
-    func attach(store: BrowserStore, passwords: KeychainCredentialProvider, history: HistoryStore, bookmarks: BookmarkStore) {
+    func attach(store: BrowserStore, passwords: KeychainCredentialProvider, history: HistoryStore, bookmarks: BookmarkStore,
+                sshHosts: SSHHostStore, knownHosts: KnownHostsStore) {
         self.store = store
         self.passwords = passwords
         self.history = history
         self.bookmarks = bookmarks
+        self.sshHosts = sshHosts
+        self.knownHosts = knownHosts
         store.onLocalChange = { [weak self] snapshot in self?.mirror(snapshot) }
         bookmarks.onLocalChange = { [weak self] in
             guard let self, let engine = self.engine, !self.syncingDeviceIDs.isEmpty else { return }
             let all = bookmarks.all
             Task { await engine.broadcast(.bookmarks(all)) }
+        }
+        sshHosts.onLocalChange = { [weak self] in
+            guard let self, let engine = self.engine, let sshHosts = self.sshHosts, !self.syncingDeviceIDs.isEmpty else { return }
+            let all = sshHosts.synced()
+            Task { await engine.broadcast(.sshHosts(all)) }
+        }
+        knownHosts.onLocalChange = { [weak self] in
+            guard let self, let engine = self.engine, let knownHosts = self.knownHosts, !self.syncingDeviceIDs.isEmpty else { return }
+            let all = knownHosts.all
+            Task { await engine.broadcast(.knownHosts(all)) }
         }
         if isEnabled { Task { await start() } }
     }
@@ -260,10 +275,17 @@ final class ViaMacHost {
     /// The phone's first sync frame after connecting. Merges what both sides did
     /// while apart and returns what the phone should get back.
     func hello(session: SessionSnapshot, base: SessionSnapshot?, savedPasswords: [SyncedCredential],
-               bookmarks remoteBookmarks: [Bookmark], from deviceID: String) async -> [SyncMessage] {
-        guard let store, let bookmarks else { return [] }
+               bookmarks remoteBookmarks: [Bookmark], sshHosts remoteHosts: [SyncedSSHHost], knownHosts remoteKeys: [KnownHost],
+               from deviceID: String) async -> [SyncMessage] {
+        guard let store, let bookmarks, let sshHosts, let knownHosts else { return [] }
         if bookmarks.merge(remoteBookmarks) {
             await engine?.broadcast(.bookmarks(bookmarks.all), except: deviceID)
+        }
+        if sshHosts.merge(remoteHosts) {
+            await engine?.broadcast(.sshHosts(sshHosts.synced()), except: deviceID)
+        }
+        if knownHosts.merge(remoteKeys) {
+            await engine?.broadcast(.knownHosts(knownHosts.all), except: deviceID)
         }
         for credential in savedPasswords {
             try? await passwords?.save(Credential(host: credential.host, username: credential.username, password: credential.password))
@@ -283,7 +305,7 @@ final class ViaMacHost {
         lastMirrored = result
         let logins = await allPasswords()
         lastSentPasswords = logins
-        return [.session(result), .passwords(logins), .bookmarks(bookmarks.all)]
+        return [.session(result), .passwords(logins), .bookmarks(bookmarks.all), .sshHosts(sshHosts.synced()), .knownHosts(knownHosts.all)]
     }
 
     func syncStarted(_ deviceID: String) {
@@ -326,6 +348,25 @@ final class ViaMacHost {
             // The phone is missing something the Mac has: it gets the Mac's list back.
             if Set(bookmarks.all) != Set(remote) {
                 await engine?.send(.bookmarks(bookmarks.all), to: deviceID)
+            }
+        case .sshHosts(let remote):
+            guard let sshHosts else { return }
+            if sshHosts.merge(remote) {
+                await engine?.broadcast(.sshHosts(sshHosts.synced()), except: deviceID)
+            }
+            // Only when the phone would gain something: a host kept here because its keychain write
+            // failed, or a tie, must not bounce back and forth.
+            let mine = sshHosts.synced()
+            if SSHHostMerge.needsReply(received: remote, mine: mine) {
+                await engine?.send(.sshHosts(mine), to: deviceID)
+            }
+        case .knownHosts(let remote):
+            guard let knownHosts else { return }
+            if knownHosts.merge(remote) {
+                await engine?.broadcast(.knownHosts(knownHosts.all), except: deviceID)
+            }
+            if KnownHostMerge.needsReply(received: remote, mine: knownHosts.all) {
+                await engine?.send(.knownHosts(knownHosts.all), to: deviceID)
             }
         case .history(let visits):
             history?.merge(visits)

@@ -19,6 +19,8 @@ struct BrowserScreen: View {
     /// «Сохранить как PDF»: the page, waiting for the Files save sheet.
     @State private var pdf: PDFFile?
     @State private var pdfName = ""
+    /// The on-screen keyboard is up: over a terminal the bottom bar steps aside for the shell.
+    @State private var isKeyboardUp = false
 
     var body: some View {
         let store = model.store
@@ -33,7 +35,10 @@ struct BrowserScreen: View {
                 PasswordBar(tab: tab, passwords: model.passwords)
             }
             ZStack(alignment: .top) {
-                if let tab = store.selectedTab, tab.url != nil {
+                if let tab = store.selectedTab, let hostID = tab.url?.sshHostID {
+                    SSHTabScreen(tab: tab, hostID: hostID)
+                        .id(tab.id)
+                } else if let tab = store.selectedTab, tab.url != nil {
                     WebViewContainer(tab: tab, environment: store.environment)
                         .id(tab.id)
                         .ignoresSafeArea(edges: .horizontal)
@@ -61,26 +66,32 @@ struct BrowserScreen: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            BottomBar(
-                store: store,
-                mode: model.mode,
-                canSendToMac: model.relay.pairedMac != nil,
-                onAddress: { openAddress(newTab: false) },
-                onNewTab: {
-                    if let url = HomePage.url { store.newTab(url: url) } else { openAddress(newTab: true) }
-                },
-                onSwipeSpace: switchSpace,
-                onTabs: { showTabs = true },
-                onSwitchMode: { model.switchMode(to: $0) },
-                onViaMacSettings: { showViaMacSettings = true },
-                onSiteInfo: { showSiteInfo = true },
-                onSendToMac: sendToMac,
-                onDownloads: { showDownloads = true },
-                onBookmark: { showBookmarkEditor = true },
-                onSettings: { showSettings = true },
-                onSavePDF: savePDF
-            )
+            if !(isKeyboardUp && store.selectedTab?.isSSH == true) {
+                BottomBar(
+                    store: store,
+                    mode: model.mode,
+                    canSendToMac: model.relay.pairedMac != nil,
+                    // A tab on a deleted server has nothing to reconnect to.
+                    canReload: store.selectedTab?.url?.sshHostID.map { model.sshHosts.host($0) != nil } ?? true,
+                    onAddress: { openAddress(newTab: false) },
+                    onNewTab: {
+                        if let url = HomePage.url { store.newTab(url: url) } else { openAddress(newTab: true) }
+                    },
+                    onSwipeSpace: switchSpace,
+                    onTabs: { showTabs = true },
+                    onSwitchMode: { model.switchMode(to: $0) },
+                    onViaMacSettings: { showViaMacSettings = true },
+                    onSiteInfo: { showSiteInfo = true },
+                    onSendToMac: sendToMac,
+                    onDownloads: { showDownloads = true },
+                    onBookmark: { showBookmarkEditor = true },
+                    onSettings: { showSettings = true },
+                    onSavePDF: savePDF
+                )
+            }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in isKeyboardUp = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in isKeyboardUp = false }
         .sheet(isPresented: $showTabs) {
             TabsSheet(store: store, relay: model.mode == .viaMac ? model.relay : nil)
         }
@@ -120,8 +131,12 @@ struct BrowserScreen: View {
             if case .success = result { show("PDF сохранён") }
         }
         .fullScreenCover(item: $addressEntry) { target in
-            AddressEntry(store: store, initialText: target == .newTab ? "" : store.selectedTab?.url?.absoluteString ?? "", isPrivate: store.environment.isPrivate) { url in
-                if target == .currentTab, let tab = store.selectedTab { tab.load(url) } else { store.newTab(url: url) }
+            let current = target == .newTab ? nil : store.selectedTab
+            AddressEntry(store: store, initialText: current?.isSSH == false ? current?.url?.absoluteString ?? "" : "",
+                         isPrivate: store.environment.isPrivate, hosts: model.sshHosts.live,
+                         onSSH: { store.openSSH($0) }) { url in
+                // A page never replaces a terminal: it opens beside it.
+                if let current, !current.isSSH { current.load(url) } else { store.newTab(url: url) }
             }
         }
     }
@@ -260,6 +275,7 @@ private struct BottomBar: View {
     let store: MobileStore
     let mode: BrowsingMode
     let canSendToMac: Bool
+    let canReload: Bool
     let onAddress: () -> Void
     let onNewTab: () -> Void
     let onSwipeSpace: (Int) -> Void
@@ -277,6 +293,8 @@ private struct BottomBar: View {
 
     var body: some View {
         let tab = store.selectedTab
+        // A terminal has no page to share, find in, zoom, bookmark, read or save.
+        let page = tab?.isSSH == true ? nil : tab
         VStack(spacing: 8) {
             HStack(spacing: 0) {
             Button(action: onAddress) {
@@ -288,7 +306,8 @@ private struct BottomBar: View {
                         Image(systemName: mode.systemImage)
                             .foregroundStyle(store.activeSpace.color)
                     }
-                    Text(tab?.url.map { $0.absoluteString.replacingOccurrences(of: "^https?://(www\\.)?", with: "", options: .regularExpression) } ?? "Поиск или адрес")
+                    Text(tab?.isSSH == true ? "SSH: \(tab?.displayTitle ?? "")"
+                         : tab?.url.map { $0.absoluteString.replacingOccurrences(of: "^https?://(www\\.)?", with: "", options: .regularExpression) } ?? "Поиск или адрес")
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(tab == nil ? .secondary : .primary)
@@ -300,7 +319,8 @@ private struct BottomBar: View {
             .buttonStyle(.plain)
             if let tab, tab.url != nil {
                 Button {
-                    if tab.isLoading { tab.webView?.stopLoading() } else { tab.webView?.reload() }
+                    if tab.isSSH { tab.isNewSSHSession = false; tab.sshTerminal?.connect() } // only if not connected
+                    else if tab.isLoading { tab.webView?.stopLoading() } else { tab.webView?.reload() }
                 } label: {
                     Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
                         .font(.footnote.weight(.semibold))
@@ -308,7 +328,8 @@ private struct BottomBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(tab.isLoading ? "Остановить" : "Обновить")
+                .disabled(!canReload)
+                .accessibilityLabel(tab.isSSH ? "Переподключиться" : tab.isLoading ? "Остановить" : "Обновить")
             }
             }
             .background(.thinMaterial, in: Capsule())
@@ -357,35 +378,35 @@ private struct BottomBar: View {
                             }
                         }
                     }
-                    if let url = tab?.url, canSendToMac {
+                    if let url = page?.url, canSendToMac {
                         Button("Открыть на Mac", systemImage: "laptopcomputer.and.arrow.down") { onSendToMac(url) }
                     }
-                    if let url = tab?.url {
+                    if let url = page?.url {
                         ShareLink(item: url)
                     }
-                    if let tab, tab.url != nil {
+                    if let tab = page, tab.url != nil {
                         Button("Найти на странице", systemImage: "doc.text.magnifyingglass") { tab.showFind() }
                         ZoomMenuRow(store: store, tab: tab)
                     }
                     Button("Загрузки", systemImage: "arrow.down.circle", action: onDownloads)
-                    if tab?.webView != nil, tab?.url != nil {
+                    if page?.webView != nil, page?.url != nil {
                         Button("О сайте", systemImage: "info.circle", action: onSiteInfo)
                     }
-                    if let url = tab?.url {
+                    if let url = page?.url {
                         Section {
                             let isBookmarked = store.bookmarks.bookmark(for: url) != nil
                             Button(isBookmarked ? "Изменить закладку" : "Добавить в закладки",
                                    systemImage: isBookmarked ? "star.fill" : "star", action: onBookmark)
                         }
                     }
-                    if let tab, tab.isReadable || tab.reader != nil {
+                    if let tab = page, tab.isReadable || tab.reader != nil {
                         Button(tab.reader == nil ? "Режим чтения" : "Выйти из режима чтения", systemImage: "doc.plaintext") {
                             if tab.reader != nil { tab.reader = nil; return }
                             guard let webView = tab.webView else { return }
                             Task { tab.reader = await ReaderMode.article(from: webView) }
                         }
                     }
-                    if let tab, tab.url != nil {
+                    if let tab = page, tab.url != nil {
                         Button("Сохранить как PDF", systemImage: "doc.richtext", action: onSavePDF)
                         Button(tab.isMuted ? "Включить звук" : "Выключить звук",
                                systemImage: tab.isMuted ? "speaker.wave.2" : "speaker.slash") { tab.setMuted(!tab.isMuted) }
@@ -464,6 +485,9 @@ private struct AddressEntry: View {
     let initialText: String
     /// Private browsing: no search suggestions are fetched.
     var isPrivate = false
+    /// Saved SSH servers, offered as «SSH: name»; picking one opens it in a new tab.
+    var hosts: [SSHHost] = []
+    var onSSH: (UUID) -> Void = { _ in }
     let onSubmit: (URL) -> Void
     @State private var suggestions: [String] = []
     @State private var text = ""
@@ -478,6 +502,19 @@ private struct AddressEntry: View {
                     let isSearch = SearchEngine.current.query(in: url) != nil
                     suggestion(isSearch ? "Искать «\(query)»" : url.absoluteString,
                                icon: isSearch ? "magnifyingglass" : "globe") { submit() }
+                }
+                let servers = query.isEmpty ? [] : hosts.filter {
+                    "SSH: \($0.displayName)".localizedCaseInsensitiveContains(query) || $0.address.localizedCaseInsensitiveContains(query)
+                }
+                if !servers.isEmpty {
+                    Section("SSH-серверы") {
+                        ForEach(servers) { host in
+                            suggestion("SSH: \(host.displayName)", detail: "\(host.username)@\(host.address)", icon: "terminal") {
+                                onSSH(host.id)
+                                dismiss()
+                            }
+                        }
+                    }
                 }
                 if !query.isEmpty, !suggestions.isEmpty {
                     Section("Поиск в \(SearchEngine.current.title)") {
@@ -494,7 +531,7 @@ private struct AddressEntry: View {
                     Section(query.isEmpty ? "Недавние вкладки" : "Открытые вкладки") {
                         ForEach(tabs) { tab in
                             suggestion(tab.title.isEmpty ? (tab.url?.host() ?? "Вкладка") : tab.title,
-                                       detail: tab.url?.host(), icon: "square.on.square") {
+                                       detail: tab.isSSH ? "SSH" : tab.url?.host(), icon: tab.isSSH ? "terminal" : "square.on.square") {
                                 store.select(tab.id)
                                 dismiss()
                             }

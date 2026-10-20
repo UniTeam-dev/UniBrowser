@@ -7,8 +7,8 @@ import WebKit
 @MainActor
 @Observable
 final class AppModel {
-    /// `address` starts with the current page's full URL, to read, copy or edit it.
-    enum PaletteMode { case search, newTab, address }
+    /// `address` starts with the current page's full URL, to read, copy or edit it. `ssh` picks a saved SSH host.
+    enum PaletteMode { case search, newTab, address, ssh }
 
     let passwords: PasswordsService
     let store: BrowserStore
@@ -17,8 +17,23 @@ final class AppModel {
     /// Visits and bookmarks of this Mac, shared with its via-Mac iPhones (docs/library-architecture.md).
     let history = HistoryStore(fileURL: LibraryFiles.url("history.sqlite"), deviceID: BrowserStore.deviceID)
     let bookmarks = BookmarkStore(fileURL: LibraryFiles.url("bookmarks.json"))
+    /// Saved SSH servers (secrets in the keychain) and the server keys the user trusted;
+    /// private windows share the main model's two stores (one object per file).
+    let sshHosts: SSHHostStore
+    let knownHosts: KnownHostsStore
+    @ObservationIgnored private let main: AppModel?
+    /// Command history per SSH host, shared by that host's tabs so they don't overwrite each other's saves.
+    @ObservationIgnored private var sshHistories: [UUID: CommandHistory] = [:]
 
     var paletteMode: PaletteMode?
+
+    /// A private window has its own, in memory only.
+    func sshHistory(for hostID: UUID) -> CommandHistory {
+        if let history = sshHistories[hostID] { return history }
+        let history = CommandHistory(hostID: hostID, directory: LibraryFiles.url("ssh-history"), isPrivate: isPrivate)
+        sshHistories[hostID] = history
+        return history
+    }
     /// The sidebar as a 56 pt column of icons instead of the 290 pt list; kept across launches.
     var isSidebarCompact = UserDefaults.standard.bool(forKey: "sidebarCompact") {
         didSet { UserDefaults.standard.set(isSidebarCompact, forKey: "sidebarCompact") }
@@ -26,6 +41,8 @@ final class AppModel {
     var isArchiveVisible = false
     var isExtensionsVisible = false
     var isPasswordsVisible = false
+    /// Set with `isPasswordsVisible`: open the «SSH» section on this host's form (a failed SSH tab's «Изменить сервер»).
+    var passwordsSSHHost: UUID?
     /// «Файл → Импорт…»; also offered once on the first launch.
     var isImportVisible = false
     /// The ☆ / ⌘D bookmark editor in the address strip.
@@ -60,19 +77,45 @@ final class AppModel {
     @ObservationIgnored private static let privateWindows = NSHashTable<NSWindow>.weakObjects()
 
     convenience init() {
-        self.init(passwords: PasswordsService(), siteSettings: .persistent(), isPrivate: false)
+        self.init(passwords: PasswordsService(), siteSettings: .persistent(), isPrivate: false, main: nil)
     }
 
-    private init(passwords: PasswordsService, siteSettings: SiteSettingsStore, isPrivate: Bool) {
+    private init(passwords: PasswordsService, siteSettings: SiteSettingsStore, isPrivate: Bool, main: AppModel?) {
         self.passwords = passwords
+        self.main = main
+        sshHosts = main?.sshHosts ?? SSHHostStore(fileURL: LibraryFiles.url("ssh-hosts.json"), secrets: SSHSecretStore())
+        knownHosts = main?.knownHosts ?? KnownHostsStore(fileURL: LibraryFiles.url("known-hosts.json"))
         self.isPrivate = isPrivate
         self.store = BrowserStore(environment: WebEnvironment(passwords: passwords, siteSettings: siteSettings, isPrivate: isPrivate))
         installTabSwitcherMonitor()
+        // The stores are shared, so each model adds its own reaction to the previous ones.
+        let previousRemoved = sshHosts.onRemoved
+        sshHosts.onRemoved = { [weak self] ids in
+            previousRemoved?(ids)
+            guard let self else { return }
+            for tab in store.tabs.values where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
+            for id in ids { sshHistories[id] = nil }
+            guard !isPrivate else { return }
+            // The main model forgets the host's local leftovers: command history, command list, font size.
+            for id in ids {
+                let name = "\(id.uuidString.lowercased()).json"
+                try? FileManager.default.removeItem(at: LibraryFiles.url("ssh-history/\(name)"))
+                try? FileManager.default.removeItem(at: LibraryFiles.url("ssh-commands/\(name)"))
+                SSHTerminalView.forgetFontSize(id)
+            }
+        }
+        let previousSaved = sshHosts.onSaved
+        sshHosts.onSaved = { [weak self] id in
+            previousSaved?(id)
+            guard let store = self?.store else { return }
+            for tab in store.tabs.values where tab.url?.sshHostID == id && tab.sshSession?.state != .connected { tab.sleep() }
+        }
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
         guard !isPrivate else { return } // a private window keeps no history and isn't mirrored
         history.pruneForRetentionSetting()
         store.environment.history = history
-        viaMac.attach(store: store, passwords: passwords.builtIn, history: history, bookmarks: bookmarks)
+        viaMac.attach(store: store, passwords: passwords.builtIn, history: history, bookmarks: bookmarks,
+                      sshHosts: sshHosts, knownHosts: knownHosts)
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
             while !Task.isCancelled {
@@ -86,7 +129,7 @@ final class AppModel {
 
     /// Shares the logins; permission decisions start from the saved ones and stay in memory.
     func makePrivateModel() -> AppModel {
-        AppModel(passwords: passwords, siteSettings: store.environment.siteSettings.privateCopy(), isPrivate: true)
+        AppModel(passwords: passwords, siteSettings: store.environment.siteSettings.privateCopy(), isPrivate: true, main: main ?? self)
     }
 
     /// The private window closed: its pages go, and with the last reference its data store.
@@ -201,6 +244,7 @@ final class AppModel {
 
     /// `sourceTabID` is set when peeking at an existing tab, so "Сделать вкладкой" selects it instead of duplicating.
     func openPeek(_ url: URL, sourceTabID: UUID? = nil) {
+        guard url.sshHostID == nil else { return } // a terminal has no page to peek at
         peek = PeekPage(url: url, sourceTabID: sourceTabID, configuration: store.environment.makeBaseConfiguration(dataStore: store.environment.dataStore(forSpace: store.activeSpaceID)))
     }
 

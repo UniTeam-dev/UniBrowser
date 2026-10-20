@@ -6,3 +6,4 @@ xcuserdata/
 build.log
 graphify-out/
 docs/app-store.md
+scripts/ssh_check/.build/

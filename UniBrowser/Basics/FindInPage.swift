@@ -143,7 +143,13 @@ extension BrowserTab {
 
 extension BrowserStore {
     /// ⌘+ / ⌘− (`up`), ⌘0 (nil): the selected tab's site, every open tab of it, and remembered.
+    /// An SSH tab changes its host's terminal font size instead.
     func zoomSelectedTab(up: Bool?) {
+        if let hostID = selectedTab?.url?.sshHostID {
+            SSHTerminalView.zoom(hostID, up: up)
+            for other in tabs.values where other.url?.sshHostID == hostID { other.sshTerminal?.applyFontSize() }
+            return
+        }
         guard let tab = selectedTab, let host = tab.url?.host() else { return }
         let level = up.map { PageZoom.step(from: tab.pageZoom, up: $0) } ?? 1
         PageZoom.setLevel(level, for: host)

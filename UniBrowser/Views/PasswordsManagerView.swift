@@ -11,6 +11,10 @@ struct PasswordsManagerView: View {
     @State private var error: String?
     @State private var editing: Credential?
     @State private var isAdding = false
+    @State private var section = PasswordsSection.passwords
+    @State private var sshEditing: SSHHost?
+
+    private enum PasswordsSection { case passwords, ssh }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -20,7 +24,40 @@ struct PasswordsManagerView: View {
                 Button("Готово") { dismiss() }.keyboardShortcut(.defaultAction)
             }
             .padding(16)
+            Picker("", selection: $section) {
+                Text("Пароли").tag(PasswordsSection.passwords)
+                Text("SSH").tag(PasswordsSection.ssh)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
             Divider()
+            if section == .ssh {
+                SSHHostsView(editing: $sshEditing)
+            } else {
+                passwordsContent
+            }
+        }
+        .frame(width: 560, height: 520)
+        .onAppear {
+            reload()
+            if let id = model.passwordsSSHHost {
+                model.passwordsSSHHost = nil
+                section = .ssh
+                sshEditing = model.sshHosts.host(id)
+            }
+        }
+        .sheet(item: $editing) { credential in
+            PasswordEditor(original: credential, store: store) { reload() }
+        }
+        .sheet(isPresented: $isAdding) {
+            PasswordEditor(original: nil, store: store) { reload() }
+        }
+    }
+
+    @ViewBuilder
+    private var passwordsContent: some View {
             storagePicker
             Divider()
 
@@ -49,15 +86,6 @@ struct PasswordsManagerView: View {
                 Button("Добавить…") { isAdding = true }
             }
             .padding(16)
-        }
-        .frame(width: 560, height: 480)
-        .onAppear(perform: reload)
-        .sheet(item: $editing) { credential in
-            PasswordEditor(original: credential, store: store) { reload() }
-        }
-        .sheet(isPresented: $isAdding) {
-            PasswordEditor(original: nil, store: store) { reload() }
-        }
     }
 
     private var storagePicker: some View {

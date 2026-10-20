@@ -21,6 +21,7 @@ private struct GeneralSettings: View {
     @Environment(\.openWindow) private var openWindow
     @AppStorage(SearchEngine.defaultsKey) private var engine = SearchEngine.google
     @AppStorage(SearchSuggestions.enabledKey) private var suggestions = true
+    @AppStorage(SettingsKeys.terminalSuggestions) private var terminalSuggestions = true
     @AppStorage(HomePage.key) private var startPage = ""
     @AppStorage("appearance") private var appearance = Appearance.system
 
@@ -30,6 +31,7 @@ private struct GeneralSettings: View {
                 ForEach(SearchEngine.allCases) { Text($0.title).tag($0) }
             }
             Toggle("Подсказки поиска в ⌘K", isOn: $suggestions)
+            Toggle("Подсказки в терминале", isOn: $terminalSuggestions)
             TextField("Стартовая страница", text: $startPage, prompt: Text("пусто — ⌘T открывает поиск"))
             Picker("Оформление", selection: $appearance) {
                 ForEach(Appearance.allCases, id: \.self) { Text($0.title) }

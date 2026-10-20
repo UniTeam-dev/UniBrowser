@@ -13,6 +13,7 @@ struct BrowserCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("Новая вкладка") { model.openPalette(.newTab) }
                 .keyboardShortcut("t")
+            Button("Новая SSH-вкладка…") { model.openPalette(.ssh) }
             Button("Новое приватное окно") { openWindow(id: "private") }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Новая группа") { model.store.newGroup(named: "Новая группа") }
@@ -48,8 +49,14 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("[")
             Button("Вперёд") { model.store.selectedTab?.webView?.goForward() }
                 .keyboardShortcut("]")
-            Button("Обновить") { model.store.selectedTab?.webView?.reload() }
+            Button("Обновить") { model.store.selectedTab?.reload() }
                 .keyboardShortcut("r")
+            Button("Файлы SSH") {
+                guard let tab = model.store.selectedTab, tab.isSSH else { return }
+                withAnimation(.easeOut(duration: 0.2)) { tab.isFilesVisible.toggle() }
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .disabled(!(model.store.selectedTab?.isSSH ?? false))
             Divider()
             Button("Расширения…") { model.isExtensionsVisible = true }
                 .keyboardShortcut("e", modifiers: [.command, .shift])

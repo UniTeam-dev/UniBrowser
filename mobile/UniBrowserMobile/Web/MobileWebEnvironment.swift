@@ -148,6 +148,8 @@ extension MobileTabController: WKNavigationDelegate {
         decidePolicyFor action: WKNavigationAction,
         preferences: WKWebpagePreferences
     ) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+        // Web content must never open an SSH tab.
+        if action.request.url?.isSSHScheme == true { return (.cancel, preferences) }
         if action.shouldPerformDownload { return (.download, preferences) } // <a download>, blob: and data: links
         if action.targetFrame?.isMainFrame == true, let environment {
             await ContentBlocker.shared.prepare().value
@@ -229,7 +231,7 @@ extension MobileTabController: WKUIDelegate {
         for action: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = action.request.url {
+        if let url = action.request.url, !url.isSSHScheme {
             environment?.store?.newTab(url: url)
         }
         return nil

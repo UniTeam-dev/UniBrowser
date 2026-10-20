@@ -88,9 +88,13 @@ struct AddressStrip: View {
             if tab?.isLoading == true {
                 iconButton("xmark", label: "Остановить") { tab?.webView?.stopLoading() }
             } else {
-                iconButton("arrow.clockwise", label: "Обновить", enabled: tab?.url != nil) { tab?.webView?.reload() }
+                iconButton("arrow.clockwise", label: tab?.isSSH == true ? "Переподключиться" : "Обновить", enabled: tab?.url != nil && tab?.url?.sshHostID.map { model.sshHosts.host($0) != nil } != false) { tab?.reload() }
             }
-            addressButton(tab?.url)
+            if let id = tab?.url?.sshHostID {
+                sshAddress(model.sshHosts.host(id))
+            } else {
+                addressButton(tab?.url)
+            }
             if let tab, abs(tab.pageZoom - 1) > 0.001 {
                 Button(PageZoom.label(tab.pageZoom)) { store.zoomSelectedTab(up: nil) }
                     .buttonStyle(.plain)
@@ -105,7 +109,12 @@ struct AddressStrip: View {
             if let tab, tab.isReadable || tab.reader != nil {
                 iconButton(tab.reader == nil ? "doc.plaintext" : "doc.plaintext.fill", label: "Режим чтения") { toggleReader(tab) }
             }
-            if let url = tab?.url {
+            if let tab, tab.isSSH {
+                iconButton(tab.isFilesVisible ? "folder.fill" : "folder", label: "Файлы (⇧⌘F)") {
+                    withAnimation(.easeOut(duration: 0.2)) { tab.isFilesVisible.toggle() }
+                }
+            }
+            if let url = tab?.url, tab?.isSSH == false { // an SSH tab's address is internal: nothing to bookmark or copy
                 BookmarkStar(url: url)
                 iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }
             }
@@ -197,6 +206,26 @@ struct AddressStrip: View {
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
+    /// An SSH tab: who it logs in as and how it gets there.
+    private func sshAddress(_ host: SSHHost?) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "terminal").foregroundStyle(Palette.secondaryText)
+            if let host {
+                Text(verbatim: host.port == 22 ? "\(host.username)@\(host.address)" : "\(host.username)@\(host.address):\(host.port)")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(SSHRoute.direct.label).foregroundStyle(Palette.secondaryText)
+            } else {
+                Text("Сервер удалён из хранилища").foregroundStyle(Palette.secondaryText)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
     private func toggleReader(_ tab: BrowserTab) {
         guard tab.reader == nil else { return tab.reader = nil }
         guard let webView = tab.webView else { return }
@@ -242,13 +271,21 @@ struct ContentArea: View {
     }
 }
 
-/// One tab's page: the password bar, the web view and its loading bar, and the tab's
+/// One tab: an SSH tab's terminal, or the page with the password bar, the web view and its loading bar, and the tab's
 /// developer tools when they are open.
 struct TabPane: View {
     @Environment(BrowserStore.self) private var store
     let tab: BrowserTab
 
     var body: some View {
+        if let hostID = tab.url?.sshHostID {
+            SSHTabView(tab: tab, hostID: hostID)
+        } else {
+            page
+        }
+    }
+
+    private var page: some View {
         VStack(spacing: 0) {
             if let request = tab.permissionRequest { PermissionBar(request: request) }
             PasswordBar(tab: tab).id(tab.id) // its error message belongs to this tab
@@ -390,8 +427,7 @@ struct WebViewContainer: NSViewRepresentable {
     func updateNSView(_ container: NSView, context: Context) {
         // Read so a tab put to sleep on screen (its space's store changed) wakes here again.
         _ = tab.isAsleep
-        let webView = tab.wake(environment: environment)
-        guard let hostView = tab.hostView, hostView.superview !== container else { return }
+        guard let webView = tab.wake(environment: environment), let hostView = tab.hostView, hostView.superview !== container else { return }
         container.subviews.forEach { $0.removeFromSuperview() }
         hostView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(hostView)

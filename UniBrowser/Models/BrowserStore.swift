@@ -90,6 +90,12 @@ final class BrowserStore {
 
     @discardableResult
     func newTab(url: URL?, inGroup groupID: UUID? = nil, select: Bool = true) -> BrowserTab {
+        // Only `openSSH` makes SSH tabs; from anywhere else (extensions, links, handoff) the URL is dropped: a blank tab.
+        insertTab(url: url?.isSSHScheme == true ? nil : url, inGroup: groupID, select: select)
+    }
+
+    @discardableResult
+    private func insertTab(url: URL?, inGroup groupID: UUID? = nil, select: Bool = true) -> BrowserTab {
         let tab = BrowserTab(url: url)
         tabs[tab.id] = tab
         environment.extensions.tabOpened(tab)
@@ -203,10 +209,16 @@ final class BrowserStore {
         scheduleSave()
     }
 
-    /// Opens what the user typed: a URL if it looks like one, otherwise a search.
+    /// A new, selected tab with a terminal on the saved host.
+    @discardableResult
+    func openSSH(_ hostID: UUID, select: Bool = true) -> BrowserTab {
+        insertTab(url: .ssh(hostID), select: select)
+    }
+
+    /// Opens what the user typed: a URL if it looks like one, otherwise a search. Never in an SSH tab.
     func open(input: String, inNewTab: Bool) {
         guard let url = Self.url(fromInput: input) else { return }
-        if !inNewTab, let tab = selectedTab {
+        if !inNewTab, let tab = selectedTab, !tab.isSSH {
             tab.load(url)
         } else {
             newTab(url: url)
