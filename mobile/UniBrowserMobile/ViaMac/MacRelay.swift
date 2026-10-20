@@ -401,11 +401,11 @@ final class MacRelay {
             sshHosts.merge(remote)
             // Only when the Mac would gain something, so a kept local version or a tie doesn't bounce.
             let mine = sshHosts.synced()
-            if SSHHostMerge.merged(remote, mine) != remote { send(.sshHosts(mine)) }
+            if SSHHostMerge.needsReply(received: remote, mine: mine) { send(.sshHosts(mine)) }
         case .knownHosts(let remote):
             guard let knownHosts else { return }
             knownHosts.merge(remote)
-            if KnownHostMerge.merged(remote, knownHosts.all) != remote { send(.knownHosts(knownHosts.all)) }
+            if KnownHostMerge.needsReply(received: remote, mine: knownHosts.all) { send(.knownHosts(knownHosts.all)) }
         case .history(let visits):
             store?.history?.merge(visits)
         case .hello, .savePassword, .sessionKeepingImages:

@@ -357,7 +357,7 @@ final class ViaMacHost {
             // Only when the phone would gain something: a host kept here because its keychain write
             // failed, or a tie, must not bounce back and forth.
             let mine = sshHosts.synced()
-            if SSHHostMerge.merged(remote, mine) != remote {
+            if SSHHostMerge.needsReply(received: remote, mine: mine) {
                 await engine?.send(.sshHosts(mine), to: deviceID)
             }
         case .knownHosts(let remote):
@@ -365,7 +365,7 @@ final class ViaMacHost {
             if knownHosts.merge(remote) {
                 await engine?.broadcast(.knownHosts(knownHosts.all), except: deviceID)
             }
-            if KnownHostMerge.merged(remote, knownHosts.all) != remote {
+            if KnownHostMerge.needsReply(received: remote, mine: knownHosts.all) {
                 await engine?.send(.knownHosts(knownHosts.all), to: deviceID)
             }
         case .history(let visits):

@@ -32,6 +32,21 @@ enum SyncV3Check {
         precondition(String(decoding: ViaMacProtocol.alpn, as: UTF8.self).hasSuffix("/3"), "ALPN is /3")
         let legacy = ViaMacProtocol.legacyAlpns.map { String(decoding: $0, as: UTF8.self) }
         precondition(legacy == ["unibrowser/via-mac/2", "unibrowser/via-mac/1"], "/2 and /1 are legacy")
+
+        // Echo rule: reply only when the sender would gain something.
+        func host(_ id: UUID, _ t: Double, _ address: String) -> SyncedSSHHost {
+            SyncedSSHHost(host: SSHHost(id: id, address: address, username: "u", modifiedAt: Date(timeIntervalSince1970: t)), secret: SSHSecret())
+        }
+        let hid = UUID()
+        precondition(!SSHHostMerge.needsReply(received: [host(hid, 5, "a")], mine: [host(hid, 5, "a")]), "equal lists: no reply")
+        precondition(!SSHHostMerge.needsReply(received: [host(hid, 9, "new")], mine: [host(hid, 5, "old")]), "received wins over stale local: no reply")
+        precondition(SSHHostMerge.needsReply(received: [], mine: [host(hid, 5, "a")]), "host only local: reply")
+        precondition(SSHHostMerge.needsReply(received: [host(hid, 5, "old")], mine: [host(hid, 9, "new")]), "local newer: reply")
+        let tieA = KnownHost(hostPort: "h:22", keyType: "t", fingerprintSHA256: "A", publicKey: "A", addedAt: at)
+        let tieB = KnownHost(hostPort: "h:22", keyType: "t", fingerprintSHA256: "B", publicKey: "B", addedAt: at)
+        precondition(!KnownHostMerge.needsReply(received: [tieA], mine: [tieB]), "known hosts tied addedAt: no reply")
+        precondition(!KnownHostMerge.needsReply(received: [tieA], mine: [tieA]), "known hosts equal: no reply")
+        precondition(KnownHostMerge.needsReply(received: [], mine: [tieA]), "known host only local: reply")
         print("sync v3: ok")
     }
 }

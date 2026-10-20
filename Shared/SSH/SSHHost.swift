@@ -78,6 +78,11 @@ enum SSHHostMerge {
         return result
     }
 
+    /// Echo rule: answer a received list only when the sender would gain something from `mine`.
+    static func needsReply(received: [SyncedSSHHost], mine: [SyncedSSHHost]) -> Bool {
+        merged(received, mine) != received
+    }
+
     static func pruned(_ items: [SyncedSSHHost], now: Date) -> [SyncedSSHHost] {
         items.filter { !$0.host.deleted || now.timeIntervalSince($0.host.modifiedAt) < BookmarkMerge.tombstoneLifetime }
     }
@@ -110,6 +115,10 @@ enum KnownHostMerge {
             }
         }
         return result
+    }
+
+    static func needsReply(received: [KnownHost], mine: [KnownHost]) -> Bool {
+        merged(received, mine) != received
     }
 
     static func check(_ all: [KnownHost], hostPort: String, publicKey: String) -> KnownHostCheck {
