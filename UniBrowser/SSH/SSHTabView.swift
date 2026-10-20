@@ -7,6 +7,8 @@ struct SSHTabView: View {
     let hostID: UUID
     @AppStorage("ssh.filesWidth") private var filesWidth = 420.0
     @State private var dragStart: Double?
+    /// The fingerprint the host-key sheet is showing.
+    @State private var shownPrompt: String?
 
     var body: some View {
         if let host = model.sshHosts.host(hostID) {
@@ -28,13 +30,13 @@ struct SSHTabView: View {
             // Wakes on appear, and again if the tab is put to sleep while on screen.
             .task(id: tab.sshSession == nil) {
                 guard tab.sshSession == nil else { return }
-                tab.wakeSSH(host: host, secret: model.sshHosts.secret(for: hostID), knownHosts: model.knownHosts,
-                            history: model.sshHistory(for: hostID))
+                tab.wakeSSH(hostID: hostID, hosts: model.sshHosts, knownHosts: model.knownHosts, history: model.sshHistory(for: hostID))
                 tab.sshTerminal?.connect()
             }
             .onChange(of: host.displayName, initial: true) { tab.title = host.displayName }
             .sheet(item: hostKeyPrompt) { prompt in
                 HostKeySheet(key: prompt.key, previous: prompt.previous) { tab.sshSession?.answerHostKey(trust: $0) }
+                    .onAppear { shownPrompt = prompt.id }
             }
         } else {
             card {
@@ -108,14 +110,17 @@ struct SSHTabView: View {
         var id: String { key.fingerprintSHA256 }
     }
 
-    /// Dismissing the sheet any other way than its buttons counts as «Отмена».
+    private var currentPrompt: Prompt? {
+        guard case .hostKeyPrompt(let key, let previous) = tab.sshSession?.state else { return nil }
+        return Prompt(key: key, previous: previous)
+    }
+
+    /// Dismissing the sheet any other way than its buttons counts as «Отмена» — only while the session still
+    /// waits on the prompt that sheet showed: an old sheet going away must not answer a newer prompt.
     private var hostKeyPrompt: Binding<Prompt?> {
         Binding(
-            get: {
-                guard case .hostKeyPrompt(let key, let previous) = tab.sshSession?.state else { return nil }
-                return Prompt(key: key, previous: previous)
-            },
-            set: { if $0 == nil { tab.sshSession?.answerHostKey(trust: false) } }
+            get: { currentPrompt },
+            set: { if $0 == nil, let current = currentPrompt, current.id == shownPrompt { tab.sshSession?.answerHostKey(trust: false) } }
         )
     }
 }

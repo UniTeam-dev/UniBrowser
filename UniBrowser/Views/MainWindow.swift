@@ -114,7 +114,7 @@ struct AddressStrip: View {
                     withAnimation(.easeOut(duration: 0.2)) { tab.isFilesVisible.toggle() }
                 }
             }
-            if let url = tab?.url {
+            if let url = tab?.url, tab?.isSSH == false { // an SSH tab's address is internal: nothing to bookmark or copy
                 BookmarkStar(url: url)
                 iconButton("doc.on.doc", label: "Скопировать адрес") { copy(url) }
             }

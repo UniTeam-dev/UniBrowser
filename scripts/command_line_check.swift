@@ -157,6 +157,15 @@ enum CommandLineCheck {
         await again.loaded()
         precondition(again.matches(prefix: "", limit: 5000) == early.matches(prefix: "", limit: 5000), "merge saved")
         precondition(CommandHistory(fileURL: nil).matches(prefix: "", limit: 8) == [], "in memory")
+        // per host: `<dir>/<host-id>.json`; private mode never touches the disk and starts empty
+        let host = UUID(), dir = file.deletingLastPathComponent()
+        precondition(CommandHistory(hostID: host, directory: dir, isPrivate: false).fileURL == dir.appending(path: "\(host.uuidString.lowercased()).json"))
+        let secret = CommandHistory(hostID: host, directory: dir, isPrivate: true)
+        precondition(secret.fileURL == nil && secret.matches(prefix: "", limit: 8) == [], "private: memory only")
+        secret.add("private command")
+        secret.flush()
+        precondition(secret.matches(prefix: "", limit: 8) == ["private command"]
+            && !FileManager.default.fileExists(atPath: dir.appending(path: "\(host.uuidString.lowercased()).json").path), "private: nothing on disk")
         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
 
         print("command line: ok")

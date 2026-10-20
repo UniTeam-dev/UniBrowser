@@ -24,6 +24,8 @@ final class AppModel {
     private(set) var privateStore: MobileStore
     /// Command history per SSH host, shared by that host's tabs so they don't overwrite each other's saves.
     @ObservationIgnored private var sshHistories: [UUID: CommandHistory] = [:]
+    /// Private mode's, in memory only; forgotten with the private store.
+    @ObservationIgnored private var privateSSHHistories: [UUID: CommandHistory] = [:]
     /// SSH tabs whose session was closed when the app went to the background; they log in again on return.
     @ObservationIgnored private var sshTabsToResume: [MobileTab] = []
 
@@ -46,7 +48,16 @@ final class AppModel {
 
         // A deleted server's tabs close their session and say «Сервер удалён из хранилища».
         sshHosts.onRemoved = { [weak self] ids in
-            for tab in self?.sshTabs ?? [] where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
+            guard let self else { return }
+            for tab in sshTabs where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
+            // …and the host's local leftovers go: command history and command list.
+            for id in ids {
+                sshHistories[id] = nil
+                privateSSHHistories[id] = nil
+                let name = "\(id.uuidString.lowercased()).json"
+                try? FileManager.default.removeItem(at: LibraryFiles.url("ssh-history/\(name)"))
+                try? FileManager.default.removeItem(at: LibraryFiles.url("ssh-commands/\(name)"))
+            }
         }
         // An edited server: tabs not connected to it log in afresh with what was saved (a shell already in use stays).
         sshHosts.onSaved = { [weak self] id in
@@ -65,10 +76,10 @@ final class AppModel {
         [direct, viaMac, privateStore].flatMap { $0.tabs.values.filter(\.isSSH) }
     }
 
-    func sshHistory(for hostID: UUID) -> CommandHistory {
-        if let history = sshHistories[hostID] { return history }
-        let history = CommandHistory(fileURL: LibraryFiles.url("ssh-history/\(hostID.uuidString.lowercased()).json"))
-        sshHistories[hostID] = history
+    func sshHistory(for hostID: UUID, isPrivate: Bool) -> CommandHistory {
+        if let history = (isPrivate ? privateSSHHistories : sshHistories)[hostID] { return history }
+        let history = CommandHistory(hostID: hostID, directory: LibraryFiles.url("ssh-history"), isPrivate: isPrivate)
+        if isPrivate { privateSSHHistories[hostID] = history } else { sshHistories[hostID] = history }
         return history
     }
 
@@ -109,12 +120,15 @@ final class AppModel {
 
     func switchMode(to newMode: BrowsingMode) {
         guard newMode != mode else { return }
-        // Only the visible mode keeps a live page.
-        store.selectedTab?.sleep()
+        // Only the visible mode keeps a live page; an SSH tab keeps its session, like on a tab switch.
+        if let tab = store.selectedTab, !tab.isSSH { tab.sleep() }
         // Leaving private mode closes its tabs; a fresh store on entering forgets the old
         // cookies and storage and starts from the site decisions saved by now.
         if mode == .private { privateStore.removeAllTabs() }
-        if newMode == .private { privateStore = Self.makePrivateStore(passwords: passwords, siteSettings: siteSettings) }
+        if newMode == .private {
+            privateStore = Self.makePrivateStore(passwords: passwords, siteSettings: siteSettings)
+            privateSSHHistories = [:]
+        }
         mode = newMode
     }
 

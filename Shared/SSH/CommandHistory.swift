@@ -7,7 +7,7 @@ final class CommandHistory {
     nonisolated static let limit = 2000
 
     private var lines: [String] = []
-    private let fileURL: URL?
+    let fileURL: URL?
     /// Until the file is read; saving waits for it, so lines added meanwhile don't replace the file's.
     private var loading: Task<Void, Never>?
     private static let writes = DispatchQueue(label: "app.unibrowser.ssh-history", qos: .utility)
@@ -27,6 +27,12 @@ final class CommandHistory {
             loading = nil
             if !added.isEmpty { save() }
         }
+    }
+
+    /// A host's history: `<directory>/<host-id>.json`, or memory only in private mode,
+    /// which must never write typed commands to disk.
+    convenience init(hostID: UUID, directory: URL, isPrivate: Bool) {
+        self.init(fileURL: isPrivate ? nil : directory.appending(path: "\(hostID.uuidString.lowercased()).json"))
     }
 
     /// For checks.

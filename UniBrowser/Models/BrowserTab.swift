@@ -145,13 +145,17 @@ final class BrowserTab: Identifiable {
     }
 
     /// Opens the SSH tab's session and terminal; the view then connects. The Mac always goes direct.
-    func wakeSSH(host: SSHHost, secret: SSHSecret, knownHosts: KnownHostsStore, history: CommandHistory) {
+    /// Every login reads the host and secret from `hosts`, so a reconnect uses what is stored by then.
+    func wakeSSH(hostID: UUID, hosts: SSHHostStore, knownHosts: KnownHostsStore, history: CommandHistory) {
         guard sshSession == nil else { return }
-        let session = SSHSession(host: host, secret: secret, knownHosts: knownHosts, route: .direct)
+        let session = SSHSession(knownHosts: knownHosts) { [weak hosts] in
+            guard let hosts, let host = hosts.host(hostID) else { return nil }
+            return (host, hosts.secret(for: hostID), .direct)
+        }
         let files = SFTPBrowser(session: session)
         let suggestions = SuggestionEngine(session: session, browser: files, history: history,
-                                           commandsCacheURL: LibraryFiles.url("ssh-commands/\(host.id.uuidString.lowercased()).json"))
-        sshTerminal = SSHTerminalView(session: session, hostID: host.id, suggestions: suggestions)
+                                           commandsCacheURL: LibraryFiles.url("ssh-commands/\(hostID.uuidString.lowercased()).json"))
+        sshTerminal = SSHTerminalView(session: session, hostID: hostID, suggestions: suggestions)
         sshFiles = files
         sshSession = session
         isAsleep = false

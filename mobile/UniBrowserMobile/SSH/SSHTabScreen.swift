@@ -7,6 +7,8 @@ struct SSHTabScreen: View {
     let hostID: UUID
     @State private var pane = Pane.terminal
     @State private var editing: SSHHost?
+    /// The fingerprint the host-key sheet is showing.
+    @State private var shownPrompt: String?
 
     private enum Pane: String, CaseIterable {
         case terminal = "Терминал", files = "Файлы"
@@ -22,7 +24,7 @@ struct SSHTabScreen: View {
                     .pickerStyle(.segmented)
                     .fixedSize()
                     Spacer(minLength: 0)
-                    Text(statusLine)
+                    Text(statusLine(host))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -43,9 +45,8 @@ struct SSHTabScreen: View {
             // Wakes on appear, and again if the tab is put to sleep while on screen.
             .task(id: tab.sshSession == nil) {
                 guard tab.sshSession == nil else { return }
-                let route: SSHRoute = host.viaMac ? .socks(host: "127.0.0.1", port: Int(MacRelay.localProxyPort.rawValue)) : .direct
-                tab.wakeSSH(host: host, secret: model.sshHosts.secret(for: hostID), knownHosts: model.knownHosts,
-                            history: model.sshHistory(for: hostID), route: route)
+                tab.wakeSSH(hostID: hostID, hosts: model.sshHosts, knownHosts: model.knownHosts,
+                            history: model.sshHistory(for: hostID, isPrivate: model.privateStore.tab(tab.id) === tab))
                 tab.sshTerminal?.connect()
             }
             .onChange(of: host.displayName, initial: true) { tab.title = host.displayName }
@@ -58,6 +59,7 @@ struct SSHTabScreen: View {
             }
             .sheet(item: hostKeyPrompt) { prompt in
                 HostKeySheet(key: prompt.key, previous: prompt.previous) { tab.sshSession?.answerHostKey(trust: $0) }
+                    .onAppear { shownPrompt = prompt.id }
             }
             .sheet(item: $editing) { SSHHostForm(original: $0) }
         } else {
@@ -71,8 +73,8 @@ struct SSHTabScreen: View {
     }
 
     /// «Напрямую» or «Через Mac»; «Новая сессия» after the app came back and logged in again.
-    private var statusLine: String {
-        tab.sshRoute.label + (tab.isNewSSHSession ? " · Новая сессия" : "")
+    private func statusLine(_ host: SSHHost) -> String {
+        (tab.sshSession?.route ?? MobileTab.sshRoute(for: host)).label + (tab.isNewSSHSession ? " · Новая сессия" : "")
     }
 
     @ViewBuilder
@@ -125,14 +127,17 @@ struct SSHTabScreen: View {
         var id: String { key.fingerprintSHA256 }
     }
 
-    /// Dismissing the sheet any other way than its buttons counts as «Отмена».
+    private var currentPrompt: Prompt? {
+        guard case .hostKeyPrompt(let key, let previous) = tab.sshSession?.state else { return nil }
+        return Prompt(key: key, previous: previous)
+    }
+
+    /// Dismissing the sheet any other way than its buttons counts as «Отмена» — only while the session still
+    /// waits on the prompt that sheet showed: an old sheet going away must not answer a newer prompt.
     private var hostKeyPrompt: Binding<Prompt?> {
         Binding(
-            get: {
-                guard case .hostKeyPrompt(let key, let previous) = tab.sshSession?.state else { return nil }
-                return Prompt(key: key, previous: previous)
-            },
-            set: { if $0 == nil { tab.sshSession?.answerHostKey(trust: false) } }
+            get: { currentPrompt },
+            set: { if $0 == nil, let current = currentPrompt, current.id == shownPrompt { tab.sshSession?.answerHostKey(trust: false) } }
         )
     }
 }

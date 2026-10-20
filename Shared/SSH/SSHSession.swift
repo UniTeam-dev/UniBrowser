@@ -26,13 +26,14 @@ final class SSHSession {
     /// The shell reported `cwd` itself (OSC 7) on this connection. Before that `cwd` is only the login folder,
     /// and a `cd` would go unnoticed.
     private(set) var cwdFromShell = false
+    /// The route of the latest login; nil before the first.
+    private(set) var route: SSHRoute?
     /// Raw terminal output; may split UTF-8 sequences between calls.
     @ObservationIgnored var onOutput: (([UInt8]) -> Void)?
 
-    @ObservationIgnored private let host: SSHHost
-    @ObservationIgnored private let secret: SSHSecret
+    /// Read on every login, so a reconnect uses what is stored now; nil: the host was deleted.
+    @ObservationIgnored private let credentials: @MainActor () -> (SSHHost, SSHSecret, SSHRoute)?
     @ObservationIgnored private let knownHosts: KnownHostsStore
-    @ObservationIgnored private let route: SSHRoute
     @ObservationIgnored private var connection: SSHConnection?
     @ObservationIgnored private var input: AsyncStream<PTYInput>.Continuation?
     @ObservationIgnored private var keepalive: Task<Void, Never>?
@@ -42,11 +43,13 @@ final class SSHSession {
     /// Bumped by every login and teardown; a login that finds it changed is stale and closes what it opened.
     @ObservationIgnored private var attempt = 0
 
-    init(host: SSHHost, secret: SSHSecret, knownHosts: KnownHostsStore, route: SSHRoute) {
-        self.host = host
-        self.secret = secret
+    init(knownHosts: KnownHostsStore, credentials: @escaping @MainActor () -> (SSHHost, SSHSecret, SSHRoute)?) {
         self.knownHosts = knownHosts
-        self.route = route
+        self.credentials = credentials
+    }
+
+    convenience init(host: SSHHost, secret: SSHSecret, knownHosts: KnownHostsStore, route: SSHRoute) {
+        self.init(knownHosts: knownHosts) { (host, secret, route) }
     }
 
     /// Returns once connected, failed, or waiting for `answerHostKey`.
@@ -64,7 +67,7 @@ final class SSHSession {
     /// For a changed key the UI asks twice before calling this with `true`.
     func answerHostKey(trust: Bool) {
         guard case .hostKeyPrompt(let key, _) = state else { return }
-        guard trust else { state = .closed; return }
+        guard trust else { state = .failed("Ключ сервера не принят"); return }
         knownHosts.trust(key)
         state = .connecting
         Task { await open() }
@@ -107,21 +110,31 @@ final class SSHSession {
         state = .closed
     }
 
+    /// The keepalive's probe, for checks: `command` answered within 10 s, whatever its exit status.
+    func ping(_ command: String) async -> Bool {
+        await connection?.ping(command) ?? false
+    }
+
     // MARK: - Connection
 
     private func open() async {
         attempt += 1
         let mine = attempt
-        let check = HostKeyCheck { [weak self] key in await self?.accept(hostKey: key, attempt: mine) ?? false }
+        guard let credentials = credentials() else { state = .failed("Сервер удалён из хранилища"); return }
+        let (host, secret, route) = credentials
+        self.route = route
+        let hostPort = host.address.contains(":") ? "[\(host.address)]:\(host.port)" : "\(host.address):\(host.port)"
+        let check = HostKeyCheck { [weak self] key in await self?.accept(hostKey: key, hostPort: hostPort, attempt: mine) ?? false }
         let connection: SSHConnection
         do {
             connection = try await SSHConnection.open(host: host, secret: secret, route: route, hostKeyCheck: check)
         } catch {
             // A host-key prompt, `close()` or a newer login already set the state.
-            if mine == attempt, state == .connecting { state = .failed(message(for: error)) }
+            if mine == attempt, state == .connecting { state = .failed(message(for: error, host: host, secret: secret)) }
             return
         }
-        let cwd = (try? await connection.exec("pwd"))?.trimmingCharacters(in: .newlines)
+        // Some servers never answer `exec`: log in without the folder rather than hang in «Подключение…».
+        let cwd = (try? await connection.answer("pwd", within: .seconds(5))?.get())?.trimmingCharacters(in: .newlines)
         guard mine == attempt, state == .connecting else { connection.close(); return }
         self.connection = connection
         self.cwd = cwd
@@ -189,12 +202,8 @@ final class SSHSession {
         connection = nil
     }
 
-    private var hostPort: String {
-        host.address.contains(":") ? "[\(host.address)]:\(host.port)" : "\(host.address):\(host.port)"
-    }
-
     /// `line` is "<type> <base64>". Unknown or changed keys turn into a prompt and fail this login.
-    private func accept(hostKey line: String, attempt: Int) -> Bool {
+    private func accept(hostKey line: String, hostPort: String, attempt: Int) -> Bool {
         guard attempt == self.attempt, state == .connecting else { return false }
         let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
         guard parts.count == 2, let blob = Data(base64Encoded: parts[1]) else { return false }
@@ -208,7 +217,7 @@ final class SSHSession {
         return false
     }
 
-    private func message(for error: Error) -> String {
+    private func message(for error: Error, host: SSHHost, secret: SSHSecret) -> String {
         switch error {
         case is NoMacLink:
             return Self.noMacLinkMessage
@@ -337,13 +346,22 @@ private final class SSHConnection: @unchecked Sendable {
 
     func close() { Task { try? await client.close() } }
 
-    /// `true` within 10 s.
-    func ping() async -> Bool {
-        let (results, result) = AsyncStream.makeStream(of: Bool.self)
-        Task { result.yield((try? await self.client.executeCommand("true")) != nil) }
-        Task { try? await Task.sleep(for: .seconds(10)); result.yield(false) }
-        for await ok in results { return ok }
-        return false
+    /// Any answer within 10 s, a non-zero exit (`CommandFailed`) included: the server is there.
+    func ping(_ command: String = "true") async -> Bool {
+        await answer(command, within: .seconds(10)) != nil && client.isConnected
+    }
+
+    /// What `command` gave, or nil if the server didn't answer within `timeout`. Unstructured tasks:
+    /// Citadel's exec doesn't stop on cancellation, so a task group would wait for it anyway.
+    func answer(_ command: String, within timeout: Duration) async -> Result<String, Error>? {
+        let (answers, answer) = AsyncStream.makeStream(of: Result<String, Error>?.self)
+        let running = Task {
+            do { answer.yield(.success(try await self.exec(command))) } catch { answer.yield(.failure(error)) }
+        }
+        let timer = Task { try? await Task.sleep(for: timeout); answer.yield(nil) }
+        defer { running.cancel(); timer.cancel() }
+        for await first in answers { return first }
+        return nil
     }
 
     /// Until the shell exits or the connection drops. Throws only if the PTY couldn't be opened:

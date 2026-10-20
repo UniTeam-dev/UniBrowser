@@ -288,7 +288,8 @@ final class MobileStore {
     // MARK: - Spaces
 
     func switchToSpace(_ spaceID: UUID) {
-        selectedTab?.sleep()
+        // An SSH tab keeps its session, like on a tab switch.
+        if let tab = selectedTab, !tab.isSSH { tab.sleep() }
         activeSpaceID = spaceID
         scheduleSave()
     }

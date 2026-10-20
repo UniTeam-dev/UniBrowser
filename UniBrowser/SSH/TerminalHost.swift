@@ -73,6 +73,9 @@ final class SSHTerminalView: TerminalView {
         return saved > 0 ? saved : defaultFontSize
     }
 
+    /// The host was deleted.
+    static func forgetFontSize(_ hostID: UUID) { UserDefaults.standard.removeObject(forKey: key(hostID)) }
+
     /// `up` nil resets to 13 pt.
     static func zoom(_ hostID: UUID, up: Bool?) {
         let size = up.map { min(max(fontSize(for: hostID) + ($0 ? 1 : -1), 8), 36) } ?? defaultFontSize
@@ -225,12 +228,8 @@ extension SSHTerminalView: @preconcurrency TerminalViewDelegate {
     func scrolled(source: TerminalView, position: Double) {}
     func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
 
-    /// OSC 52 from the remote program.
-    func clipboardCopy(source: TerminalView, content: Data) {
-        guard let text = String(data: content, encoding: .utf8) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
+    /// OSC 52 from the remote program: ignored, so a hostile server can't plant a command in the clipboard.
+    func clipboardCopy(source: TerminalView, content: Data) {}
 }
 
 /// Hosts the tab's terminal view, like `WebViewContainer` hosts its web view.

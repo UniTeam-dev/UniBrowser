@@ -47,8 +47,6 @@ final class MobileTab: Identifiable {
     @ObservationIgnored private(set) var sshTerminal: SSHTerminalView?
     /// Its «Файлы» and transfers.
     private(set) var sshFiles: SFTPBrowser?
-    /// How the session reaches the server, for the status line.
-    private(set) var sshRoute: SSHRoute = .direct
     /// Logged in again by itself after the app came back: the status line says «Новая сессия».
     var isNewSSHSession = false
 
@@ -113,16 +111,24 @@ final class MobileTab: Identifiable {
         return webView
     }
 
-    /// Opens the SSH tab's session and terminal; the view then connects.
-    func wakeSSH(host: SSHHost, secret: SSHSecret, knownHosts: KnownHostsStore, history: CommandHistory, route: SSHRoute) {
+    /// How a login to `host` reaches it: straight, or through the paired Mac's SOCKS proxy.
+    static func sshRoute(for host: SSHHost) -> SSHRoute {
+        host.viaMac ? .socks(host: "127.0.0.1", port: Int(MacRelay.localProxyPort.rawValue)) : .direct
+    }
+
+    /// Opens the SSH tab's session and terminal; the view then connects. Every login reads the host,
+    /// secret and route from `hosts`, so a reconnect uses what is stored by then.
+    func wakeSSH(hostID: UUID, hosts: SSHHostStore, knownHosts: KnownHostsStore, history: CommandHistory) {
         guard sshSession == nil else { return }
-        let session = SSHSession(host: host, secret: secret, knownHosts: knownHosts, route: route)
+        let session = SSHSession(knownHosts: knownHosts) { [weak hosts] in
+            guard let hosts, let host = hosts.host(hostID) else { return nil }
+            return (host, hosts.secret(for: hostID), Self.sshRoute(for: host))
+        }
         let files = SFTPBrowser(session: session)
         let suggestions = SuggestionEngine(session: session, browser: files, history: history,
-                                           commandsCacheURL: LibraryFiles.url("ssh-commands/\(host.id.uuidString.lowercased()).json"))
+                                           commandsCacheURL: LibraryFiles.url("ssh-commands/\(hostID.uuidString.lowercased()).json"))
         sshTerminal = SSHTerminalView(session: session, suggestions: suggestions)
         sshFiles = files
-        sshRoute = route
         sshSession = session
     }
 

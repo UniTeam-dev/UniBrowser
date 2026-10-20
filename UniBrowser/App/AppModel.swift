@@ -18,7 +18,7 @@ final class AppModel {
     let history = HistoryStore(fileURL: LibraryFiles.url("history.sqlite"), deviceID: BrowserStore.deviceID)
     let bookmarks = BookmarkStore(fileURL: LibraryFiles.url("bookmarks.json"))
     /// Saved SSH servers (secrets in the keychain) and the server keys the user trusted;
-    /// private windows share the main model's two stores (one object per file) and its history map.
+    /// private windows share the main model's two stores (one object per file).
     let sshHosts: SSHHostStore
     let knownHosts: KnownHostsStore
     @ObservationIgnored private let main: AppModel?
@@ -27,10 +27,10 @@ final class AppModel {
 
     var paletteMode: PaletteMode?
 
+    /// A private window has its own, in memory only.
     func sshHistory(for hostID: UUID) -> CommandHistory {
-        if let main { return main.sshHistory(for: hostID) }
         if let history = sshHistories[hostID] { return history }
-        let history = CommandHistory(fileURL: LibraryFiles.url("ssh-history/\(hostID.uuidString.lowercased()).json"))
+        let history = CommandHistory(hostID: hostID, directory: LibraryFiles.url("ssh-history"), isPrivate: isPrivate)
         sshHistories[hostID] = history
         return history
     }
@@ -92,8 +92,17 @@ final class AppModel {
         let previousRemoved = sshHosts.onRemoved
         sshHosts.onRemoved = { [weak self] ids in
             previousRemoved?(ids)
-            guard let store = self?.store else { return }
+            guard let self else { return }
             for tab in store.tabs.values where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
+            for id in ids { sshHistories[id] = nil }
+            guard !isPrivate else { return }
+            // The main model forgets the host's local leftovers: command history, command list, font size.
+            for id in ids {
+                let name = "\(id.uuidString.lowercased()).json"
+                try? FileManager.default.removeItem(at: LibraryFiles.url("ssh-history/\(name)"))
+                try? FileManager.default.removeItem(at: LibraryFiles.url("ssh-commands/\(name)"))
+                SSHTerminalView.forgetFontSize(id)
+            }
         }
         let previousSaved = sshHosts.onSaved
         sshHosts.onSaved = { [weak self] id in

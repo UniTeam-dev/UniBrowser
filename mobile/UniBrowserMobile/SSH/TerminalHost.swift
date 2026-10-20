@@ -159,11 +159,8 @@ extension SSHTerminalView: @preconcurrency TerminalViewDelegate {
     func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
     func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
 
-    /// OSC 52 from the remote program.
-    func clipboardCopy(source: TerminalView, content: Data) {
-        guard let text = String(data: content, encoding: .utf8) else { return }
-        UIPasteboard.general.string = text
-    }
+    /// OSC 52 from the remote program: ignored, so a hostile server can't plant a command in the clipboard.
+    func clipboardCopy(source: TerminalView, content: Data) {}
 }
 
 /// Hosts the tab's terminal view, like `WebViewContainer` hosts its web view.

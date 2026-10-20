@@ -153,6 +153,22 @@ func checkSession() async {
     await wrong.connect(cols: 80, rows: 24)
     precondition(wrong.state == .failed("Сервер не принял пароль или ключ"), "wrong password: \(wrong.state)")
 
+    // every login reads the stored host and secret: after an edit «Переподключиться» uses the new password; a deleted host fails
+    let password = Box("nope")
+    let edited = SSHSession(knownHosts: store) { password.value.isEmpty ? nil : (server, SSHSecret(password: password.value), .direct) }
+    await edited.connect(cols: 80, rows: 24)
+    precondition(edited.state == .failed("Сервер не принял пароль или ключ"), "edited, old secret: \(edited.state)")
+    password.value = "test"
+    await edited.connect(cols: 80, rows: 24)
+    precondition(edited.state == .connected, "edited, new secret: \(edited.state)")
+    // keepalive: a non-zero exit is still the server answering; only no answer within 10 s is a miss
+    let failing = await edited.ping("false"), passing = await edited.ping("true"), silent = await edited.ping("sleep 15")
+    precondition(failing && passing && !silent, "ping false \(failing), true \(passing), sleep 15 \(silent)")
+    edited.close()
+    password.value = ""
+    await edited.connect(cols: 80, rows: 24)
+    precondition(edited.state == .failed("Сервер удалён из хранилища"), "deleted host: \(edited.state)")
+
     // closed port, unknown name
     let closedPort = session(SSHHost(address: "127.0.0.1", port: 1, username: "test"))
     await closedPort.connect(cols: 80, rows: 24)
@@ -189,7 +205,7 @@ func checkSession() async {
     guard case .hostKeyPrompt(let current, previous: let previous?) = changed.state else { preconditionFailure("changed: \(changed.state)") }
     precondition(current.publicKey == key.publicKey && previous.fingerprintSHA256 == "SHA256:old")
     changed.answerHostKey(trust: false)
-    precondition(changed.state == .closed && store.all.first?.fingerprintSHA256 == "SHA256:old")
+    precondition(changed.state == .failed("Ключ сервера не принят") && store.all.first?.fingerprintSHA256 == "SHA256:old")
     print("session: ok")
 }
 
