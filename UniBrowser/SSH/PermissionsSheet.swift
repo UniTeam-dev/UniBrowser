@@ -5,6 +5,8 @@ struct PermissionsSheet: View {
     let entry: SFTPEntry
     let apply: (UInt32) -> Void
     @State private var mode: UInt32
+    /// setuid, setgid and sticky: not shown, kept as they are.
+    private let special: UInt32
     @State private var octal: String
     @Environment(\.dismiss) private var dismiss
 
@@ -12,6 +14,7 @@ struct PermissionsSheet: View {
         self.entry = entry
         self.apply = apply
         let mode = entry.permissions & 0o777
+        special = entry.permissions & 0o7000
         _mode = State(initialValue: mode)
         _octal = State(initialValue: String(mode, radix: 8))
     }
@@ -51,7 +54,7 @@ struct PermissionsSheet: View {
                 Button("Отмена", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Применить") {
-                    apply(mode)
+                    apply(special | mode)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

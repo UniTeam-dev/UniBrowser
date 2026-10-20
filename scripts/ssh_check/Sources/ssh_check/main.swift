@@ -3,6 +3,7 @@
 //   docker compose -f scripts/ssh_check/docker-compose.yml up -d && swift run --package-path scripts/ssh_check ssh_check --live
 import Citadel
 import Foundation
+import Logging
 
 let fixtures = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appending(path: "fixtures")
 
@@ -200,6 +201,10 @@ func checkPaths() {
     precondition(SFTPBrowser.parent("/a b/c d") == "/a b" && SFTPBrowser.parent("/a") == "/")
     precondition((try? SFTPBrowser.checked("a/b")) == nil && (try? SFTPBrowser.checked("..")) == nil && (try? SFTPBrowser.checked("")) == nil)
     precondition((try? SFTPBrowser.checked("файл 2.bin")) == "файл 2.bin")
+    for (name, numbered) in [("a.txt", "a 2.txt"), ("a.tar.gz", "a 2.tar.gz"), ("B.TAR.XZ", "B 2.TAR.XZ"), ("README", "README 2"),
+                             ("файл 1.bin", "файл 1 2.bin"), ("x.y.z", "x.y 2.z")] {
+        precondition(TransferQueue.numbered(name, 2) == numbered, "\(name) → \(TransferQueue.numbered(name, 2))")
+    }
     print("paths: ok")
 }
 
@@ -211,6 +216,11 @@ func waitTransfer(_ queue: TransferQueue, _ id: UUID, seconds: Int = 120, _ ok: 
     for _ in 0..<(seconds * 20) where !(item().map { ok($0.state) } ?? false) { try? await Task.sleep(for: .milliseconds(50)) }
     guard let item = item(), ok(item.state) else { preconditionFailure("transfer \(id): \(String(describing: item()))") }
     return item
+}
+
+final class Box: @unchecked Sendable {
+    var value: String
+    init(_ value: String) { self.value = value }
 }
 
 @MainActor
@@ -229,7 +239,7 @@ func checkSFTP() async {
     }
     await login()
     let home = "/config"
-    _ = try! await session.exec("rm -rf '\(home)/тест папка' '\(home)/удалить' '\(home)/держать' '\(home)/ссылка' \(home)/*.txt \(home)/*.bin")
+    _ = try! await session.exec("rm -rf '\(home)/много' '\(home)/тест папка' '\(home)/удалить' '\(home)/держать' '\(home)/ссылка' \(home)/*.txt \(home)/*.bin")
 
     // concurrent callers share one SFTP channel
     let clients = await withTaskGroup(of: SFTPClient.self) { group in
@@ -303,6 +313,85 @@ func checkSFTP() async {
     let six = try! await browser.readText(entry("six.bin")), bad = try! await browser.readText(entry("bad.txt"))
     precondition(six == nil && bad == nil)
 
+    // saving a 0600 file: the temp file is 0600 from the start, the result keeps 0600, nothing is left behind
+    _ = try! await session.exec("printf 'секрет\\n' > '\(home)/тайна.txt' && chmod 600 '\(home)/тайна.txt'")
+    await browser.reload()
+    let tempMode = Box("")
+    try! await RemoteSwap.$hook.withValue({ step in
+        if step == .tempWritten { tempMode.value = (try? await session.exec("stat -c %a '\(home)/тайна.txt.unibrowser-tmp'")) ?? "missing" }
+    }) {
+        try await browser.writeText("новый секрет\n", to: entry("тайна.txt"))
+    }
+    let secretMode = try! await session.exec("stat -c %a '\(home)/тайна.txt'"), secret = try! await session.exec("cat '\(home)/тайна.txt'")
+    precondition(tempMode.value == "600\n" && secretMode == "600\n" && secret == "новый секрет\n", "0600 save: tmp \(tempMode.value) final \(secretMode) \(secret)")
+    precondition(!browser.entries.contains { $0.name.hasPrefix("тайна.txt.") }, "leftovers: \(browser.entries.map(\.name))")
+
+    // saving through a symlink updates the target and keeps the link
+    _ = try! await session.exec("ln -s 'тайна.txt' '\(home)/ярлык.txt'")
+    await browser.reload()
+    try! await browser.writeText("через ссылку\n", to: entry("ярлык.txt"))
+    let linkTarget = try! await session.exec("readlink '\(home)/ярлык.txt'"), viaLink = try! await session.exec("cat '\(home)/тайна.txt'")
+    precondition(linkTarget == "тайна.txt\n" && viaLink == "через ссылку\n" && entry("ярлык.txt").isSymlink, "symlink save: \(linkTarget) \(viaLink)")
+
+    // a replacing upload cancelled midway leaves the original; nothing half-written stays behind
+    let large = local.appending(path: "тайна.txt")
+    try! Data(count: 30_000_000).write(to: large)
+    browser.transfers.upload(large, to: home) { _ in .replace }
+    let replacing = browser.transfers.items.last!.id
+    _ = await waitTransfer(browser.transfers, replacing) { _ in browser.transfers.items.last!.bytesDone > 1_000_000 }
+    browser.transfers.cancel(replacing)
+    _ = await waitTransfer(browser.transfers, replacing) { $0 == .cancelled }
+    let afterCancel = try! await session.exec("cat '\(home)/тайна.txt'; ls -a \(home) | grep -c unibrowser || true")
+    precondition(afterCancel == "через ссылку\n0\n", "cancelled replace: \(afterCancel)")
+
+    // a clash waiting for an answer is held by the queue; cancelling the transfer frees the queue
+    let queue = browser.transfers
+    queue.upload(large, to: home) { await queue.ask($0) }
+    let asking = queue.items.last!.id
+    for _ in 0..<100 where queue.clash == nil { try? await Task.sleep(for: .milliseconds(50)) }
+    precondition(queue.clash?.name == "тайна.txt", "no clash shown")
+    queue.cancel(asking)
+    _ = await waitTransfer(queue, asking) { $0 == .cancelled }
+    precondition(queue.clash == nil)
+    queue.upload(large, to: home) { await queue.ask($0) }
+    let answered = queue.items.last!.id
+    for _ in 0..<100 where queue.clash == nil { try? await Task.sleep(for: .milliseconds(50)) }
+    queue.answer(.skip)
+    for _ in 0..<100 where queue.items.contains(where: { $0.id == answered }) { try? await Task.sleep(for: .milliseconds(50)) }
+    precondition(!queue.items.contains { $0.id == answered } && queue.clash == nil, "skip answer")
+
+    // the connection drops after the original was moved aside: the error names the copies; the next save recovers
+    var dropMessage = ""
+    do {
+        try await RemoteSwap.$hook.withValue({ step in
+            if step == .originalMoved { _ = shell([(compose + ["stop", "-t", "1"]).joined(separator: " ")]) }
+        }) {
+            try await browser.writeText("после обрыва\n", to: entry("тайна.txt"))
+        }
+        preconditionFailure("save survived a stopped server")
+    } catch {
+        dropMessage = SFTPBrowser.message(for: error)
+    }
+    precondition(dropMessage.contains("тайна.txt.unibrowser-old"), "drop message: \(dropMessage)")
+    _ = shell([(compose + ["start"]).joined(separator: " ")])
+    await login()
+    let leftOver = try! await session.exec("ls -a \(home) | grep тайна")
+    precondition(leftOver == "тайна.txt.unibrowser-old\nтайна.txt.unibrowser-tmp\n", "after drop: \(leftOver)")
+    try! await browser.writeText("после обрыва\n", to: SFTPEntry(name: "тайна.txt", path: "\(home)/тайна.txt", isDirectory: false, isSymlink: false, size: 0, permissions: 0))
+    let recovered = try! await session.exec("cat '\(home)/тайна.txt'; stat -c %a '\(home)/тайна.txt'; ls -a \(home) | grep -c unibrowser || true")
+    precondition(recovered == "после обрыва\n600\n0\n", "recovered: \(recovered)")
+    try! await browser.delete(["тайна.txt", "ярлык.txt"].map(entry))
+
+    // stale loads: the last folder asked for wins, though the first (300 links, one stat each) finishes later
+    _ = try! await session.exec("mkdir '\(home)/много' && cd '\(home)/много' && for i in $(seq 300); do ln -s /config l$i; done")
+    let slow = Task { await browser.open("\(home)/много") }
+    await Task.yield() // the slow load is now waiting on the server
+    await browser.open(home)
+    await slow.value
+    precondition(browser.path == home && !browser.entries.contains { $0.name == "l1" }, "stale load: \(browser.path)")
+    _ = try! await session.exec("rm -rf '\(home)/много'")
+    await browser.followTerminal()
+
     // hidden files behind the toggle
     precondition(!browser.entries.contains { $0.name.hasPrefix(".") })
     browser.showHidden = true
@@ -367,6 +456,8 @@ func checkSFTP() async {
 }
 
 setvbuf(stdout, nil, _IONBF, 0)
+// Citadel logs every SFTP request at info; the drop check makes it log errors on purpose.
+LoggingSystem.bootstrap { _ in SwiftLogNoOpLogHandler() }
 checkKeys()
 checkPaths()
 if CommandLine.arguments.contains("--live") {

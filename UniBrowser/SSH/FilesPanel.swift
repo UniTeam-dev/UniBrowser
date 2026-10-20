@@ -8,7 +8,6 @@ struct FilesPanel: View {
 
     @State private var selection = Set<SFTPEntry.ID>()
     @State private var failure: String?
-    @State private var clash: Clash?
     @State private var naming: Naming?
     @State private var name = ""
     @State private var deleting: (entries: [SFTPEntry], count: Int)?
@@ -24,21 +23,20 @@ struct FilesPanel: View {
                 Text(error).font(.caption).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading).padding(6)
             }
             table
-            if !browser.transfers.items.isEmpty {
+            if !browser.transfers.items.isEmpty || browser.transfers.clash != nil {
                 Divider()
                 TransfersStrip(queue: browser.transfers)
             }
         }
         .background(.background)
-        .task(id: [session.cwd ?? "", "\(session.state == .connected)"]) {
+        // A terminal `cd` moves the panel only while it follows; a (re)connect reloads what it shows.
+        .task(id: session.cwd) {
+            guard session.state == .connected, browser.followsTerminal else { return }
+            await browser.followTerminal()
+        }
+        .task(id: session.state == .connected) {
             guard session.state == .connected else { return }
             if browser.followsTerminal { await browser.followTerminal() } else { await browser.reload() }
-        }
-        .onDisappear { clash?.answer(.skip) }
-        .alert(clash.map { "«\($0.name)» уже есть в этой папке" } ?? "", isPresented: isPresent($clash), presenting: clash) { clash in
-            Button("Заменить", role: .destructive) { clash.answer(.replace) }
-            Button("Оставить оба") { clash.answer(.keepBoth) }
-            Button("Пропустить", role: .cancel) { clash.answer(.skip) }
         }
         .alert(naming?.title ?? "", isPresented: isPresent($naming), presenting: naming) { naming in
             TextField("Имя", text: $name)
@@ -220,12 +218,9 @@ struct FilesPanel: View {
     /// Files only; folders aren't uploaded in this version.
     private func upload(_ urls: [URL]) {
         let dir = browser.path
+        let queue = browser.transfers
         for url in urls where !url.hasDirectoryPath {
-            browser.transfers.upload(url, to: dir) { name in
-                await withCheckedContinuation { continuation in
-                    clash = Clash(name: name) { continuation.resume(returning: $0) }
-                }
-            }
+            queue.upload(url, to: dir) { await queue.ask($0) }
         }
     }
 
@@ -243,20 +238,6 @@ struct FilesPanel: View {
     /// «rwxr-x---».
     static func rwx(_ mode: UInt32) -> String {
         (0..<9).map { bit in mode & (0o400 >> UInt32(bit)) != 0 ? Array("rwx")[bit % 3] : "-" }.map(String.init).joined()
-    }
-
-    private final class Clash: Identifiable {
-        let name: String
-        private var resume: ((ConflictChoice) -> Void)?
-        init(name: String, resume: @escaping (ConflictChoice) -> Void) {
-            self.name = name
-            self.resume = resume
-        }
-        /// Once; later calls do nothing.
-        func answer(_ choice: ConflictChoice) {
-            resume?(choice)
-            resume = nil
-        }
     }
 
     private struct Naming: Identifiable {
@@ -286,6 +267,20 @@ private struct TransfersStrip: View {
                     .buttonStyle(.borderless)
                     .font(.caption)
                     .disabled(!queue.items.contains { ![.queued, .running].contains($0.state) })
+            }
+            // Inline rather than an alert: it stays answerable whatever else is on screen.
+            if let clash = queue.clash {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("«\(clash.name)» уже есть в этой папке").font(.caption.weight(.medium)).lineLimit(2)
+                    HStack {
+                        Button("Заменить") { queue.answer(.replace) }
+                        Button("Оставить оба") { queue.answer(.keepBoth) }
+                        Button("Пропустить") { queue.answer(.skip) }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(6)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
             }
             ScrollView {
                 VStack(spacing: 8) {

@@ -33,6 +33,8 @@ final class SFTPBrowser {
 
     private var all: [SFTPEntry] = []
     @ObservationIgnored private let session: SSHSession
+    /// Bumped by every load; a load that finds it changed is stale and drops its result.
+    @ObservationIgnored private var loads = 0
     @ObservationIgnored private var cache: [String: (at: Date, entries: [SFTPEntry])] = [:]
 
     nonisolated static let editorLimit: UInt64 = 5 * 1024 * 1024
@@ -67,13 +69,17 @@ final class SFTPBrowser {
 
     /// A failed listing keeps the folder shown before it, with `error` set.
     private func load(_ path: String) async {
+        loads += 1
+        let mine = loads
         do {
             let entries = try await fetch(path)
             cache[path] = (.now, entries)
+            guard mine == loads else { return }
             self.path = path
             all = entries
             error = nil
         } catch {
+            guard mine == loads else { return }
             if self.path.isEmpty { self.path = path }
             self.error = Self.message(for: error)
         }
@@ -133,9 +139,11 @@ final class SFTPBrowser {
         return try await Self.readText(entry.path, client: session.sftp())
     }
 
-    /// Writes `<name>.unibrowser-tmp` and renames it over the original, keeping the original's permissions.
+    /// Through `RemoteSwap`: keeps the original's permissions, and a symlink stays a link to the updated file.
     func writeText(_ text: String, to entry: SFTPEntry) async throws {
-        try await Self.writeText(text, to: entry.path, client: session.sftp())
+        try await RemoteSwap.write(entry.path, client: session.sftp()) { file in
+            try await file.write(ByteBuffer(string: text))
+        }
         await changed()
     }
 
@@ -188,31 +196,6 @@ final class SFTPBrowser {
         return String(bytes: buffer.readableBytesView, encoding: .utf8)
     }
 
-    nonisolated private static func writeText(_ text: String, to path: String, client: SFTPClient) async throws {
-        let mode = try await client.getAttributes(at: path).permissions
-        let temp = path + ".unibrowser-tmp"
-        do {
-            try await client.withFile(filePath: temp, flags: [.write, .create, .truncate]) { file in
-                try await file.write(ByteBuffer(string: text))
-            }
-            do {
-                try await client.rename(at: temp, to: path)
-            } catch is SFTPMessage.Status {
-                // SFTP v3 rename doesn't replace an existing file.
-                try await client.remove(at: path)
-                try await client.rename(at: temp, to: path)
-            }
-        } catch {
-            try? await client.remove(at: temp)
-            throw error
-        }
-        if let mode {
-            var attributes = SFTPFileAttributes.none
-            attributes.permissions = mode & 0o7777
-            try await client.setAttributes(at: path, to: attributes)
-        }
-    }
-
     // MARK: - Paths and errors
 
     /// POSIX: `name` relative to `base` unless absolute; `.` and `..` resolved; the root stays `/`.
@@ -252,6 +235,79 @@ struct SFTPFailure: Error {
     init(_ message: String) { self.message = message }
 }
 
+/// Writes a remote file so that a whole copy always exists: the new content goes to `<name>.unibrowser-tmp`
+/// (created with the original's mode), the original moves to `<name>.unibrowser-old`, the temp file takes the
+/// name, and the old copy is removed. A missing original is a plain create. A symlink is resolved first, so the
+/// file it points to is replaced and the link stays a link. An error or cancel before the swap removes only the
+/// temp file; one in the middle of it puts the original back, or names where both copies are.
+enum RemoteSwap {
+    enum Step: Sendable { case tempWritten, originalMoved }
+    /// For checks: runs after each step; throwing fails the write there.
+    @TaskLocal static var hook: (@Sendable (Step) async throws -> Void)?
+
+    static func write(_ path: String, client: SFTPClient, _ fill: @escaping @Sendable (SFTPFile) async throws -> Void) async throws {
+        let target = (try? await client.getRealPath(atPath: path)) ?? path
+        let temp = target + ".unibrowser-tmp", old = target + ".unibrowser-old"
+        func exists(_ path: String) async -> Bool { (try? await client.getAttributes(at: path)) != nil }
+
+        var original = try? await client.getAttributes(at: target)
+        if original == nil, await exists(old) {
+            // An earlier save dropped after moving the original away: put it back first.
+            try await client.rename(at: old, to: target)
+            original = try await client.getAttributes(at: target)
+        } else if original != nil, await exists(old) {
+            try await client.remove(at: old) // left by an earlier save that finished; the target is whole
+        }
+        var attributes = SFTPFileAttributes.none
+        let mode = original?.permissions.map { $0 & 0o7777 }
+        if let mode {
+            attributes.permissions = mode
+            // The target is whole, so a leftover temp is never the last copy; O_TRUNC would keep its mode.
+            try? await client.remove(at: temp)
+        }
+        do {
+            try await client.withFile(filePath: temp, flags: [.write, .create, .truncate], attributes: attributes, fill)
+            try await hook?(.tempWritten)
+        } catch {
+            try? await client.remove(at: temp)
+            throw error
+        }
+        guard original != nil else {
+            do {
+                try await client.rename(at: temp, to: target)
+            } catch {
+                try? await client.remove(at: temp)
+                throw error
+            }
+            return
+        }
+        do {
+            try await client.rename(at: target, to: old)
+        } catch {
+            try? await client.remove(at: temp)
+            throw error
+        }
+        do {
+            try await hook?(.originalMoved)
+            try await client.rename(at: temp, to: target)
+        } catch {
+            if (try? await client.rename(at: old, to: target)) != nil {
+                try? await client.remove(at: temp)
+                throw error
+            }
+            let name = { (path: String) in (path as NSString).lastPathComponent }
+            throw SFTPFailure("\(SFTPBrowser.message(for: error)); прежняя версия сохранена как \(name(old)), новая — как \(name(temp))")
+        }
+        if let mode {
+            // The server's umask may have narrowed the mode at create (never widened it).
+            var restore = SFTPFileAttributes.none
+            restore.permissions = mode
+            try? await client.setAttributes(at: target, to: restore)
+        }
+        try? await client.remove(at: old) // a leftover goes with the next save
+    }
+}
+
 /// The tab's uploads and downloads, one at a time.
 @MainActor
 @Observable
@@ -270,7 +326,28 @@ final class TransferQueue {
         var state = State.queued
     }
 
+    /// A name clash waiting for «Заменить / Оставить оба / Пропустить». Any panel of the tab shows it.
+    final class Clash: Identifiable {
+        let name: String
+        private var continuation: CheckedContinuation<ConflictChoice, Never>?
+
+        init(name: String, continuation: CheckedContinuation<ConflictChoice, Never>) {
+            self.name = name
+            self.continuation = continuation
+        }
+
+        /// Once; later calls do nothing.
+        fileprivate func answer(_ choice: ConflictChoice) {
+            continuation?.resume(returning: choice)
+            continuation = nil
+        }
+
+        /// A clash nobody answered never holds up the queue.
+        deinit { continuation?.resume(returning: .skip) }
+    }
+
     private(set) var items: [Item] = []
+    private(set) var clash: Clash?
     /// After an upload finishes: its remote folder.
     @ObservationIgnored var onUploaded: ((String) -> Void)?
 
@@ -286,6 +363,7 @@ final class TransferQueue {
     @ObservationIgnored private var jobs: [UUID: Job] = [:]
     @ObservationIgnored private var running: (id: UUID, task: Task<Void, Never>)?
     @ObservationIgnored private var samples: [(at: Date, bytes: UInt64)] = []
+    @ObservationIgnored private var shown = Date.distantPast
 
     init(session: SSHSession) { self.session = session }
 
@@ -295,6 +373,24 @@ final class TransferQueue {
 
     func download(_ entry: SFTPEntry, to localDir: URL) {
         add(Item(name: entry.name, direction: .download, bytesTotal: entry.size), .download(remote: entry.path, dir: localDir))
+    }
+
+    /// The panel's `conflict` for `upload`: shows the clash until `answer`, the transfer's cancel, or the queue's end.
+    func ask(_ name: String) async -> ConflictChoice {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                clash?.answer(.skip)
+                clash = Clash(name: name, continuation: continuation)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.answer(.skip) }
+        }
+    }
+
+    func answer(_ choice: ConflictChoice) {
+        let pending = clash
+        clash = nil
+        pending?.answer(choice)
     }
 
     func cancel(_ id: UUID) {
@@ -335,6 +431,7 @@ final class TransferQueue {
         let id = item.id
         update(id) { $0.state = .running; $0.bytesPerSecond = 0 }
         samples = []
+        shown = .distantPast
         running = (id, Task { [weak self] in
             await self?.run(id)
             self?.running = nil
@@ -345,7 +442,7 @@ final class TransferQueue {
     private func run(_ id: UUID) async {
         guard let job = jobs[id] else { return }
         let progress: @Sendable (UInt64) async -> Void = { [weak self] done in await self?.progress(id, done) }
-        var partial: URL?, partialRemote: String?
+        var partial: URL?
         let client: SFTPClient
         do {
             client = try await session.sftp()
@@ -361,8 +458,12 @@ final class TransferQueue {
                     remote = resolved
                 } else {
                     guard let target = try await resolve(Self.remoteName(local), in: dir, client: client, conflict: conflict) else {
-                        items.removeAll { $0.id == id }
-                        jobs[id] = nil
+                        if Task.isCancelled {
+                            update(id) { $0.state = .cancelled }
+                        } else {
+                            items.removeAll { $0.id == id }
+                            jobs[id] = nil
+                        }
                         return
                     }
                     remote = target
@@ -371,8 +472,8 @@ final class TransferQueue {
                 }
                 let total = (try FileManager.default.attributesOfItem(atPath: local.path(percentEncoded: false))[.size] as? NSNumber)?.uint64Value ?? 0
                 update(id) { $0.bytesTotal = total }
-                partialRemote = remote
-                try await Self.upload(local, to: remote, client: client, progress: progress)
+                let sent = try await Self.upload(local, to: remote, client: client, progress: progress)
+                update(id) { $0.bytesDone = sent }
                 onUploaded?(dir)
             case .download(let remote, let dir):
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -386,15 +487,14 @@ final class TransferQueue {
                 update(id) { $0.name = file.lastPathComponent }
                 let total = try await client.getAttributes(at: remote).size ?? 0
                 update(id) { $0.bytesTotal = total }
-                try await Self.download(remote, to: file, client: client, progress: progress)
+                let received = try await Self.download(remote, to: file, client: client, progress: progress)
+                update(id) { $0.bytesDone = received }
                 Downloads.quarantine(file, source: nil)
             }
             update(id) { $0.state = .done; $0.bytesPerSecond = 0 }
         } catch {
             if let partial { try? FileManager.default.removeItem(at: partial) }
             let cancelled = error is CancellationError || Task.isCancelled
-            // A cancelled upload leaves nothing half-written; after a dropped connection the server can't be asked.
-            if cancelled, let partialRemote { try? await client.remove(at: partialRemote) }
             update(id) { $0.state = cancelled ? .cancelled : .failed(SFTPBrowser.message(for: error)); $0.bytesPerSecond = 0 }
         }
     }
@@ -411,19 +511,28 @@ final class TransferQueue {
         case .replace: return target
         case .skip: return nil
         case .keepBoth:
-            let base = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
             for n in 2... {
-                let candidate = SFTPBrowser.join(dir, "\(base) \(n)" + (ext.isEmpty ? "" : ".\(ext)"))
+                let candidate = SFTPBrowser.join(dir, Self.numbered(name, n))
                 if await !exists(candidate) { return candidate }
             }
             return nil
         }
     }
 
+    /// «a.txt» → «a 2.txt»; «a.tar.gz» → «a 2.tar.gz».
+    nonisolated static func numbered(_ name: String, _ n: Int) -> String {
+        let suffix = [".tar.gz", ".tar.bz2", ".tar.xz"].first { name.lowercased().hasSuffix($0) && name.count > $0.count }
+            ?? ((name as NSString).pathExtension.isEmpty ? "" : "." + (name as NSString).pathExtension)
+        return "\(name.dropLast(suffix.count)) \(n)\(name.suffix(suffix.count))"
+    }
+
+    /// Shown at most 10 times a second; the speed is over the last ~2 s.
     private func progress(_ id: UUID, _ done: UInt64) {
         let now = Date.now
         samples.append((now, done))
         samples.removeAll { now.timeIntervalSince($0.at) > 2 }
+        guard now.timeIntervalSince(shown) >= 0.1 else { return }
+        shown = now
         let speed = samples.count > 1 ? Double(done - samples[0].bytes) / now.timeIntervalSince(samples[0].at) : 0
         update(id) { $0.bytesDone = done; $0.bytesPerSecond = speed }
     }
@@ -433,12 +542,14 @@ final class TransferQueue {
         change(&items[index])
     }
 
-    // Off the main actor, 32 KiB at a time; cancelling the task stops after the current chunk.
+    // Off the main actor, 32 KiB at a time; cancelling the task stops after the current chunk. Both return the bytes moved.
 
-    nonisolated private static func upload(_ local: URL, to remote: String, client: SFTPClient, progress: @escaping @Sendable (UInt64) async -> Void) async throws {
+    /// Through `RemoteSwap`: a cancelled or dropped upload leaves the remote original as it was.
+    nonisolated private static func upload(_ local: URL, to remote: String, client: SFTPClient, progress: @escaping @Sendable (UInt64) async -> Void) async throws -> UInt64 {
         let handle = try FileHandle(forReadingFrom: local)
         defer { try? handle.close() }
-        try await client.withFile(filePath: remote, flags: [.write, .create, .truncate]) { file in
+        let sent = OffsetBox()
+        try await RemoteSwap.write(remote, client: client) { file in
             var offset: UInt64 = 0
             while let data = try handle.read(upToCount: Int(chunk)), !data.isEmpty {
                 try Task.checkCancellation()
@@ -446,13 +557,15 @@ final class TransferQueue {
                 offset += UInt64(data.count)
                 await progress(offset)
             }
+            sent.value = offset
         }
+        return sent.value
     }
 
-    nonisolated private static func download(_ remote: String, to local: URL, client: SFTPClient, progress: @escaping @Sendable (UInt64) async -> Void) async throws {
+    nonisolated private static func download(_ remote: String, to local: URL, client: SFTPClient, progress: @escaping @Sendable (UInt64) async -> Void) async throws -> UInt64 {
         let handle = try FileHandle(forWritingTo: local)
         defer { try? handle.close() }
-        try await client.withFile(filePath: remote, flags: .read) { file in
+        return try await client.withFile(filePath: remote, flags: .read) { file in
             var offset: UInt64 = 0
             while true {
                 try Task.checkCancellation()
@@ -462,6 +575,12 @@ final class TransferQueue {
                 offset += UInt64(chunk.readableBytes)
                 await progress(offset)
             }
+            return offset
         }
     }
+}
+
+/// Carries the byte count out of `RemoteSwap.write`'s fill closure, which runs before `write` returns.
+private final class OffsetBox: @unchecked Sendable {
+    var value: UInt64 = 0
 }
