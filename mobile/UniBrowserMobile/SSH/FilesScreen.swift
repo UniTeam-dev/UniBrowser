@@ -367,10 +367,7 @@ private struct TextEditorSheet: View {
                 if let error {
                     Text("Не удалось сохранить: \(error)").font(.footnote).foregroundStyle(.red).padding(8)
                 }
-                TextEditor(text: $text)
-                    .font(.system(size: 13, design: .monospaced))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                PlainTextView(text: $text)
             }
             .navigationTitle(name)
             .navigationBarTitleDisplayMode(.inline)
@@ -405,6 +402,40 @@ private struct TextEditorSheet: View {
         } catch {
             self.error = SFTPBrowser.message(for: error)
         }
+    }
+}
+
+/// Monospace plain text that keeps exactly what is typed: SwiftUI's `TextEditor` may turn quotes and
+/// dashes into typographic ones, which breaks configs and scripts.
+private struct PlainTextView: UIViewRepresentable {
+    @Binding var text: String
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
+        view.smartInsertDeleteType = .no
+        view.autocorrectionType = .no
+        view.autocapitalizationType = .none
+        view.spellCheckingType = .no
+        view.text = text
+        view.delegate = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.text = $text
+        if view.text != text { view.text = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    @MainActor
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+        func textViewDidChange(_ view: UITextView) { text.wrappedValue = view.text }
     }
 }
 
