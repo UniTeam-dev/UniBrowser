@@ -181,6 +181,8 @@ func checkSession() async {
     let noProxy = session(route: .socks(host: "127.0.0.1", port: 1))
     await noProxy.connect(cols: 80, rows: 24)
     precondition(noProxy.state == .failed("Нет связи с Mac"), "no proxy: \(noProxy.state)")
+    // git checks the key out as 0644, which ssh refuses.
+    try! FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fixtures.appending(path: "ed25519").path)
     let proxy = Process()
     proxy.executableURL = URL(filePath: "/usr/bin/ssh")
     proxy.arguments = ["-D", "1080", "-N", "-i", fixtures.appending(path: "ed25519").path, "-p", "2222",
