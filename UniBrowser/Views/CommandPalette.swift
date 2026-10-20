@@ -22,6 +22,7 @@ struct CommandPalette: View {
         case archived(ArchivedTab)
         case bookmark(Bookmark)
         case visit(Visit)
+        case sshHost(SSHHost)
         case command(String, shortcut: String?, action: @MainActor () -> Void)
 
         var id: String {
@@ -33,6 +34,7 @@ struct CommandPalette: View {
             case .archived(let item): "archived:\(item.id)"
             case .bookmark(let item): "bookmark:\(item.id)"
             case .visit(let visit): "visit:\(visit.id)"
+            case .sshHost(let host): "ssh:\(host.id)"
             case .command(let title, _, _): "cmd:\(title)"
             }
         }
@@ -47,6 +49,9 @@ struct CommandPalette: View {
     private var sections: [Section] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         func matches(_ text: String?) -> Bool { q.isEmpty || (text?.lowercased().contains(q) ?? false) }
+        let sshHosts = model.sshHosts.live.filter { matches("SSH: \($0.displayName)") || matches($0.address) }
+        // «Новая SSH-вкладка…»: the hosts and nothing else.
+        if mode == .ssh { return sshHosts.isEmpty ? [] : [Section(title: "SSH", items: sshHosts.map(Item.sshHost))] }
 
         let tabs = store.tabsByRecency.filter {
             matches($0.title) || matches($0.url?.absoluteString) || matches(store.groupName(containing: $0.id))
@@ -83,6 +88,8 @@ struct CommandPalette: View {
 
         var result: [Section] = []
         if !q.isEmpty { result.append(Section(title: "Открыть", items: [.open(query)])) }
+        // Above the search suggestions, so typing a host's name finds it.
+        if !q.isEmpty, !sshHosts.isEmpty { result.append(Section(title: "SSH", items: sshHosts.prefix(5).map(Item.sshHost))) }
         if !q.isEmpty, !suggestions.isEmpty {
             result.append(Section(title: "Поиск в \(SearchEngine.current.title)", items: suggestions.map(Item.suggestion)))
         }
@@ -110,6 +117,14 @@ struct CommandPalette: View {
 
     private var flatItems: [Item] { sections.flatMap(\.items) }
 
+    private var placeholder: String {
+        switch mode {
+        case .newTab: "Адрес или поиск в новой вкладке"
+        case .ssh: "SSH-сервер"
+        case .search, .address: "Вкладки, группы, команды или адрес"
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             Color(red: 20 / 255, green: 20 / 255, blue: 28 / 255).opacity(0.32)
@@ -118,7 +133,7 @@ struct CommandPalette: View {
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass").font(.system(size: 18)).foregroundStyle(Palette.secondaryText)
-                    TextField(mode == .newTab ? "Адрес или поиск в новой вкладке" : "Вкладки, группы, команды или адрес", text: $query)
+                    TextField(placeholder, text: $query)
                         .textFieldStyle(.plain)
                         .font(.system(size: 20))
                         .focused($isFocused)
@@ -188,12 +203,12 @@ struct CommandPalette: View {
             .padding(.top, 96)
         }
         .onAppear {
-            if mode == .address, let url = store.selectedTab?.url { query = url.absoluteString }
+            if mode == .address, let url = store.selectedTab?.url, url.sshHostID == nil { query = url.absoluteString }
             // Next turn of the run loop: a click on a sidebar button would otherwise keep the focus.
             DispatchQueue.main.async { isFocused = true }
         }
         .onChange(of: query) { selection = 0 }
-        .task(id: query) { suggestions = await SearchSuggestions.fetch(query, isPrivate: isPrivate) }
+        .task(id: query) { if mode != .ssh { suggestions = await SearchSuggestions.fetch(query, isPrivate: isPrivate) } }
     }
 
     @ViewBuilder
@@ -212,7 +227,7 @@ struct CommandPalette: View {
                 Favicon(tab: tab, size: 20)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(tab.displayTitle).font(.system(size: 14)).lineLimit(1)
-                    Text([store.groupName(containing: tab.id), tab.url?.host()].compactMap { $0 }.joined(separator: " · "))
+                    Text([store.groupName(containing: tab.id), tab.isSSH ? "SSH" : tab.url?.host()].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 12))
                         .opacity(0.75)
                         .lineLimit(1)
@@ -244,6 +259,14 @@ struct CommandPalette: View {
                 pageText(visit.title, visit.url)
                 Spacer()
                 Image(systemName: "clock").font(.system(size: 11)).opacity(0.75)
+            case .sshHost(let host):
+                Image(systemName: "terminal").frame(width: 20)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("SSH: \(host.displayName)").font(.system(size: 14)).lineLimit(1)
+                    Text("\(host.username)@\(host.address)").font(.system(size: 12)).opacity(0.75).lineLimit(1)
+                }
+                Spacer()
+                if isSelected { Text("Открыть ↵").font(.system(size: 12)) }
             case .command(let title, let shortcut, _):
                 Image(systemName: "arrow.right.to.line").frame(width: 20)
                 Text(title).font(.system(size: 14))
@@ -287,7 +310,7 @@ struct CommandPalette: View {
             store.open(input: text, inNewTab: mode == .newTab || store.selectedTab == nil)
         case .suggestion(let text):
             let url = SearchEngine.current.searchURL(for: text)
-            if mode != .newTab, let tab = store.selectedTab { tab.load(url) } else { store.newTab(url: url) }
+            if mode != .newTab, let tab = store.selectedTab, !tab.isSSH { tab.load(url) } else { store.newTab(url: url) }
         case .tab(let tab):
             store.select(tab.id)
         case .group(let group):
@@ -296,6 +319,8 @@ struct CommandPalette: View {
             store.restore(item.id)
         case .bookmark, .visit:
             if let url = url(of: items[index]) { store.openFromLibrary(url, newTab: mode == .newTab) }
+        case .sshHost(let host):
+            store.openSSH(host.id)
         case .command(_, _, let action):
             action()
         }
@@ -317,7 +342,7 @@ struct CommandPalette: View {
             if let url = item.url { model.openPeek(url) }
         case .bookmark, .visit:
             if let url = url(of: items[index]) { model.openPeek(url) }
-        case .group, .command:
+        case .group, .command, .sshHost:
             return
         }
         close()
@@ -339,6 +364,8 @@ struct CommandPalette: View {
             store.deleteArchived(item.id)
         case .bookmark, .visit:
             if let url = url(of: items[index]) { store.openSplit(with: store.newTab(url: url, select: false).id) }
+        case .sshHost(let host):
+            store.openSplit(with: store.newTab(url: .ssh(host.id), select: false).id)
         case .group, .command:
             return
         }

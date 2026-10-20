@@ -203,10 +203,15 @@ final class BrowserStore {
         scheduleSave()
     }
 
-    /// Opens what the user typed: a URL if it looks like one, otherwise a search.
+    /// A new, selected tab with a terminal on the saved host.
+    func openSSH(_ hostID: UUID) {
+        newTab(url: .ssh(hostID))
+    }
+
+    /// Opens what the user typed: a URL if it looks like one, otherwise a search. Never in an SSH tab.
     func open(input: String, inNewTab: Bool) {
         guard let url = Self.url(fromInput: input) else { return }
-        if !inNewTab, let tab = selectedTab {
+        if !inNewTab, let tab = selectedTab, !tab.isSSH {
             tab.load(url)
         } else {
             newTab(url: url)

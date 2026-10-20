@@ -57,12 +57,20 @@ final class BrowserTab: Identifiable {
     @ObservationIgnored private var controller: TabWebController?
     @ObservationIgnored private var audioObserver: NSObject?
 
-    /// Mirrors `webView == nil` so views redraw when a tab sleeps or wakes.
+    /// The connection of an `unibrowser-ssh` tab while it is awake.
+    private(set) var sshSession: SSHSession?
+    /// Its terminal, kept with the session so switching tabs keeps the screen.
+    @ObservationIgnored private(set) var sshTerminal: SSHTerminalView?
+
+    /// Mirrors `webView == nil` (or `sshSession == nil`) so views redraw when a tab sleeps or wakes.
     private(set) var isAsleep = true
+
+    var isSSH: Bool { url?.sshHostID != nil }
 
     var displayTitle: String {
         if let customTitle { return customTitle }
         if !title.isEmpty { return title }
+        if isSSH { return "SSH" }
         return url?.host() ?? "Новая вкладка"
     }
 
@@ -76,9 +84,10 @@ final class BrowserTab: Identifiable {
     }
 
     /// Returns the live web view, creating it (and loading `url`) if the tab was asleep,
-    /// with the cookies and site data of the space the tab is in.
-    func wake(environment: WebEnvironment) -> WKWebView {
+    /// with the cookies and site data of the space the tab is in. Never for an SSH tab.
+    func wake(environment: WebEnvironment) -> WKWebView? {
         if let webView { return webView }
+        guard !isSSH else { return nil }
 
         let controller = TabWebController(tab: self, environment: environment)
         let devTools = DevToolsSession()
@@ -131,8 +140,26 @@ final class BrowserTab: Identifiable {
         return webView
     }
 
-    /// Frees the web view. The tab keeps its URL and title and reloads on the next wake.
+    /// Opens the SSH tab's session and terminal; the view then connects. The Mac always goes direct.
+    func wakeSSH(host: SSHHost, secret: SSHSecret, knownHosts: KnownHostsStore) {
+        guard sshSession == nil else { return }
+        let session = SSHSession(host: host, secret: secret, knownHosts: knownHosts, route: .direct)
+        sshTerminal = SSHTerminalView(session: session, hostID: host.id)
+        sshSession = session
+        isAsleep = false
+    }
+
+    /// ⌘R: reloads the page; an SSH tab that isn't connected logs in again.
+    func reload() {
+        if let sshTerminal { sshTerminal.connect() } else { webView?.reload() }
+    }
+
+    /// Frees the web view or closes the SSH session. The tab keeps its URL and title and reloads on the next wake.
     func sleep() {
+        sshSession?.close()
+        sshSession = nil
+        sshTerminal?.removeFromSuperview()
+        sshTerminal = nil
         permissionRequest?.cancel()
         permissionRequest = nil
         observations.removeAll()
@@ -187,6 +214,8 @@ final class BrowserTab: Identifiable {
     var isAwayFromPin: Bool { pinnedURL != nil && pinnedURL != url }
 
     func load(_ url: URL) {
+        // Between a page and an SSH host the tab sleeps; the view for the new kind wakes it.
+        if isSSH || url.sshHostID != nil { sleep() }
         self.url = url
         webView?.load(URLRequest(url: url))
     }

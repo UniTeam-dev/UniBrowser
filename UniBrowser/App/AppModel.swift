@@ -7,8 +7,8 @@ import WebKit
 @MainActor
 @Observable
 final class AppModel {
-    /// `address` starts with the current page's full URL, to read, copy or edit it.
-    enum PaletteMode { case search, newTab, address }
+    /// `address` starts with the current page's full URL, to read, copy or edit it. `ssh` picks a saved SSH host.
+    enum PaletteMode { case search, newTab, address, ssh }
 
     let passwords: PasswordsService
     let store: BrowserStore
@@ -204,6 +204,7 @@ final class AppModel {
 
     /// `sourceTabID` is set when peeking at an existing tab, so "Сделать вкладкой" selects it instead of duplicating.
     func openPeek(_ url: URL, sourceTabID: UUID? = nil) {
+        guard url.sshHostID == nil else { return } // a terminal has no page to peek at
         peek = PeekPage(url: url, sourceTabID: sourceTabID, configuration: store.environment.makeBaseConfiguration(dataStore: store.environment.dataStore(forSpace: store.activeSpaceID)))
     }
 

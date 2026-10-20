@@ -60,6 +60,7 @@ struct SidebarView: View {
                     .foregroundStyle(Palette.secondaryText)
                     .help("Новая вкладка")
                     .accessibilityLabel("Новая вкладка")
+                    .contextMenu { newTabMenu }
                 }
             }
             .scrollIndicators(.never)
@@ -102,9 +103,17 @@ struct SidebarView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Palette.secondaryText)
+                    .contextMenu { newTabMenu }
                 }
             }
             .scrollIndicators(.never)
+    }
+
+    /// Right-click on «+».
+    @ViewBuilder
+    private var newTabMenu: some View {
+        Button("Новая вкладка") { model.openPalette(.newTab) }
+        Button("Новая SSH-вкладка…") { model.openPalette(.ssh) }
     }
 
     private func startRenamingSpace() {
