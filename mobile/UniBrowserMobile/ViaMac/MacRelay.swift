@@ -85,6 +85,8 @@ final class MacRelay {
     /// The external address as resolved for the current link, to tell that path apart.
     @ObservationIgnored private var externalTargets: [String] = []
     @ObservationIgnored private var linkPath: LinkPath?
+    /// Each time the link comes up; SSH tabs that found no link log in again.
+    @ObservationIgnored var onLinkEstablished: (() -> Void)?
 
     private enum Keys {
         static let mac = "viaMac.pairedMac"
@@ -321,6 +323,7 @@ final class MacRelay {
         for tab in store?.tabs.values.filter(\.loadFailed) ?? [] {
             if let url = tab.url { tab.load(url) }
         }
+        onLinkEstablished?()
         // Paths start on the relay and move to direct once hole punching succeeds.
         Task { [weak self] in
             for _ in 0..<12 {

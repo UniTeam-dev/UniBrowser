@@ -196,7 +196,7 @@ struct TabsSheet: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(tab.displayTitle).lineLimit(1)
-                        if let host = tab.url?.host() {
+                        if let host = tab.isSSH ? "SSH" : tab.url?.host() {
                             Text(host).font(.caption).foregroundStyle(.secondary)
                         }
                     }

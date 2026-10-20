@@ -96,6 +96,18 @@ final class MobileStore {
 
     @discardableResult
     func newTab(url: URL?, inGroup groupID: UUID? = nil, select: Bool = true) -> MobileTab {
+        // Only `openSSH` makes SSH tabs; from anywhere else (pages, links, typed input) the URL is dropped: a blank tab.
+        insertTab(url: url?.isSSHScheme == true ? nil : url, inGroup: groupID, select: select)
+    }
+
+    /// A new, selected tab with a terminal on the saved host.
+    @discardableResult
+    func openSSH(_ hostID: UUID) -> MobileTab {
+        insertTab(url: .ssh(hostID))
+    }
+
+    @discardableResult
+    private func insertTab(url: URL?, inGroup groupID: UUID? = nil, select: Bool = true) -> MobileTab {
         let tab = MobileTab(url: url)
         tabs[tab.id] = tab
         mutateActiveSpace { space in
@@ -111,8 +123,9 @@ final class MobileStore {
 
     func select(_ tabID: UUID) {
         guard let tab = tabs[tabID] else { return }
-        // Only the visible tab keeps a web view on the phone, to save memory.
-        if let previous = selectedTab, previous.id != tabID { previous.sleep() }
+        // Only the visible tab keeps a web view on the phone, to save memory. An SSH tab keeps its
+        // session, so switching away and back doesn't drop the shell.
+        if let previous = selectedTab, previous.id != tabID, !previous.isSSH { previous.sleep() }
         if let spaceIndex = spaces.firstIndex(where: { $0.allTabIDs.contains(tabID) }) {
             activeSpaceID = spaces[spaceIndex].id
             spaces[spaceIndex].selectedTabID = tabID
@@ -156,7 +169,8 @@ final class MobileStore {
         if let spaceID = item.spaceID, spaceID != activeSpaceID, spaces.contains(where: { $0.id == spaceID }) {
             switchToSpace(spaceID)
         }
-        newTab(url: item.url).title = item.title
+        // A closed SSH tab comes back as one.
+        insertTab(url: item.url).title = item.title
     }
 
     /// An empty name goes back to the page title.
@@ -221,10 +235,10 @@ final class MobileStore {
         scheduleSave()
     }
 
-    /// Opens what the user typed: a URL if it looks like one, otherwise a search.
+    /// Opens what the user typed: a URL if it looks like one, otherwise a search. Never in an SSH tab.
     func open(input: String, inNewTab: Bool) {
         guard let url = Self.url(fromInput: input) else { return }
-        if !inNewTab, let tab = selectedTab {
+        if !inNewTab, let tab = selectedTab, !tab.isSSH {
             tab.load(url)
         } else {
             newTab(url: url)
@@ -396,7 +410,12 @@ final class MobileStore {
         for record in remote.tabs {
             if let tab = tabs[record.id] {
                 if let url = record.url, url != tab.url {
-                    if tab.webView == nil {
+                    let isAsleep = tab.webView == nil && tab.sshSession == nil
+                    if !isAsleep, tab.id != visible, url.isSSHScheme || tab.isSSH {
+                        // A page never loads an SSH address, nor a terminal a page: asleep, the view wakes the right kind.
+                        tab.sleep()
+                    }
+                    if tab.webView == nil && tab.sshSession == nil {
                         tab.url = url
                         tab.title = record.title
                     } else if tab.id != visible {

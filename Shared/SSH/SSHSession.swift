@@ -18,6 +18,9 @@ final class SSHSession {
         case connected, failed(String), closed
     }
 
+    /// `.failed` with this: the route through the paired Mac isn't up; the iPhone logs in again once it is.
+    static let noMacLinkMessage = "Нет связи с Mac"
+
     private(set) var state: State = .idle
     private(set) var cwd: String?
     /// The shell reported `cwd` itself (OSC 7) on this connection. Before that `cwd` is only the login folder,
@@ -208,7 +211,7 @@ final class SSHSession {
     private func message(for error: Error) -> String {
         switch error {
         case is NoMacLink:
-            return "Нет связи с Mac"
+            return Self.noMacLinkMessage
         case let error as SSHKeyError:
             return error.errorDescription ?? "\(error)"
         case SSHClientError.allAuthenticationOptionsFailed, SSHClientError.unsupportedPrivateKeyAuthentication:

@@ -41,9 +41,23 @@ final class MobileTab: Identifiable {
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var controller: MobileTabController?
 
+    /// The connection of an `unibrowser-ssh` tab while it is awake.
+    private(set) var sshSession: SSHSession?
+    /// Its terminal, kept with the session so switching tabs keeps the screen.
+    @ObservationIgnored private(set) var sshTerminal: SSHTerminalView?
+    /// Its «Файлы» and transfers.
+    private(set) var sshFiles: SFTPBrowser?
+    /// How the session reaches the server, for the status line.
+    private(set) var sshRoute: SSHRoute = .direct
+    /// Logged in again by itself after the app came back: the status line says «Новая сессия».
+    var isNewSSHSession = false
+
+    var isSSH: Bool { url?.sshHostID != nil }
+
     var displayTitle: String {
         if let customTitle { return customTitle }
         if !title.isEmpty { return title }
+        if isSSH { return "SSH" }
         return url?.host() ?? "Новая вкладка"
     }
 
@@ -57,6 +71,7 @@ final class MobileTab: Identifiable {
     }
 
     /// Returns the live web view, creating it (and loading `url`) if the tab was asleep.
+    /// An SSH tab's address is never loaded: its web view stays blank.
     func wake(environment: MobileWebEnvironment) -> WKWebView {
         if let webView { return webView }
 
@@ -94,12 +109,31 @@ final class MobileTab: Identifiable {
 
         self.controller = controller
         self.webView = webView
-        if let url { webView.load(URLRequest(url: url)) }
+        if let url, !url.isSSHScheme { webView.load(URLRequest(url: url)) }
         return webView
     }
 
-    /// Frees the web view. The tab keeps its URL and title and reloads on the next wake.
+    /// Opens the SSH tab's session and terminal; the view then connects.
+    func wakeSSH(host: SSHHost, secret: SSHSecret, knownHosts: KnownHostsStore, history: CommandHistory, route: SSHRoute) {
+        guard sshSession == nil else { return }
+        let session = SSHSession(host: host, secret: secret, knownHosts: knownHosts, route: route)
+        let files = SFTPBrowser(session: session)
+        let suggestions = SuggestionEngine(session: session, browser: files, history: history,
+                                           commandsCacheURL: LibraryFiles.url("ssh-commands/\(host.id.uuidString.lowercased()).json"))
+        sshTerminal = SSHTerminalView(session: session, suggestions: suggestions)
+        sshFiles = files
+        sshRoute = route
+        sshSession = session
+    }
+
+    /// Frees the web view or closes the SSH session. The tab keeps its URL and title and reloads on the next wake.
     func sleep() {
+        sshSession?.close()
+        sshSession = nil
+        sshTerminal?.removeFromSuperview()
+        sshTerminal = nil
+        sshFiles = nil
+        isNewSSHSession = false
         permissionRequest?.cancel()
         permissionRequest = nil
         observations.removeAll()
@@ -150,6 +184,9 @@ final class MobileTab: Identifiable {
     var isAwayFromPin: Bool { pinnedURL != nil && pinnedURL != url }
 
     func load(_ url: URL) {
+        guard !url.isSSHScheme else { return } // SSH tabs are made by `MobileStore.openSSH`, restore and the mirror only
+        // Between a server and a page the tab sleeps; the view for the new kind wakes it.
+        if isSSH { sleep() }
         self.url = url
         webView?.load(URLRequest(url: url))
     }

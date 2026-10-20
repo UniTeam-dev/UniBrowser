@@ -62,6 +62,14 @@ enum SSHKeys {
         }
     }
 
+    /// Pasted or imported key text: trimmed, LF line endings, one trailing newline, as the parser and server-side tools expect.
+    static func normalized(_ text: String) -> String {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        return t.isEmpty ? "" : t + "\n"
+    }
+
     static func isEncrypted(_ text: String) -> Bool { (try? header(text).encrypted) ?? false }
 
     /// OpenSSH PEM of a fresh ed25519 key (no passphrase, no comment).

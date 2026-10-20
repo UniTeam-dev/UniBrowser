@@ -103,7 +103,7 @@ struct SSHHostForm: View {
                 Button("Скопировать публичный ключ", action: copyPublicKey)
                     .disabled(!keepsStoredKey && key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            if !keepsStoredKey, SSHKeys.isEncrypted(Self.normalized(key)) {
+            if !keepsStoredKey, SSHKeys.isEncrypted(SSHKeys.normalized(key)) {
                 SecureField("Парольная фраза ключа", text: $passphrase)
             }
         }
@@ -114,14 +114,6 @@ struct SSHHostForm: View {
         key = SSHKeys.generateEd25519()
         passphrase = ""
         error = nil
-    }
-
-    /// Trimmed, LF line endings, one trailing newline: what the parser and the server-side tools expect.
-    static func normalized(_ text: String) -> String {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        return t.isEmpty ? "" : t + "\n"
     }
 
     private func load() {
@@ -147,7 +139,7 @@ struct SSHHostForm: View {
             return
         }
         isReplacingKey = true
-        key = Self.normalized(text)
+        key = SSHKeys.normalized(text)
         passphrase = ""
         error = nil
     }
@@ -157,7 +149,7 @@ struct SSHHostForm: View {
         do {
             let line = keepsStoredKey
                 ? try SSHKeys.publicKeyLine(stored.privateKey ?? "", passphrase: stored.passphrase, comment: comment)
-                : try SSHKeys.publicKeyLine(Self.normalized(key), passphrase: passphrase, comment: comment)
+                : try SSHKeys.publicKeyLine(SSHKeys.normalized(key), passphrase: passphrase, comment: comment)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(line, forType: .string)
             error = nil
@@ -183,7 +175,7 @@ struct SSHHostForm: View {
                 secret.privateKey = stored.privateKey
                 secret.passphrase = stored.passphrase
             } else {
-                let pem = Self.normalized(key)
+                let pem = SSHKeys.normalized(key)
                 guard !pem.isEmpty else { return error = "Вставьте или импортируйте приватный ключ." }
                 do { _ = try SSHKeys.parse(pem, passphrase: passphrase) } catch { return self.error = error.localizedDescription }
                 secret.privateKey = pem

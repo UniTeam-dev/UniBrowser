@@ -22,6 +22,10 @@ final class AppModel {
     let knownHosts = KnownHostsStore(fileURL: LibraryFiles.url("known-hosts.json"))
     /// «Приватный»: replaced, with its in-memory cookies, each time the user leaves it.
     private(set) var privateStore: MobileStore
+    /// Command history per SSH host, shared by that host's tabs so they don't overwrite each other's saves.
+    @ObservationIgnored private var sshHistories: [UUID: CommandHistory] = [:]
+    /// SSH tabs whose session was closed when the app went to the background; they log in again on return.
+    @ObservationIgnored private var sshTabsToResume: [MobileTab] = []
 
     private static let modeKey = "browsingMode"
 
@@ -39,6 +43,51 @@ final class AppModel {
         viaMacEnvironment.apply(proxies: MacRelay.proxyConfigurations())
         viaMac = MobileStore(mode: .viaMac, environment: viaMacEnvironment)
         relay.attach(store: viaMac, passwords: passwords, sshHosts: sshHosts, knownHosts: knownHosts)
+
+        // A deleted server's tabs close their session and say «Сервер удалён из хранилища».
+        sshHosts.onRemoved = { [weak self] ids in
+            for tab in self?.sshTabs ?? [] where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
+        }
+        // Like via-Mac pages that failed before the link was up (commit 0bdfaeb): log in again once it is.
+        relay.onLinkEstablished = { [weak self] in
+            for tab in self?.sshTabs ?? [] where tab.sshSession?.state == .failed(SSHSession.noMacLinkMessage) {
+                tab.sshTerminal?.connect()
+            }
+        }
+    }
+
+    /// Every SSH tab of every mode.
+    var sshTabs: [MobileTab] {
+        [direct, viaMac, privateStore].flatMap { $0.tabs.values.filter(\.isSSH) }
+    }
+
+    func sshHistory(for hostID: UUID) -> CommandHistory {
+        if let history = sshHistories[hostID] { return history }
+        let history = CommandHistory(fileURL: LibraryFiles.url("ssh-history/\(hostID.uuidString.lowercased()).json"))
+        sshHistories[hostID] = history
+        return history
+    }
+
+    /// iOS drops the app's sockets in the background (no background modes): close the sessions now.
+    func closeSSHSessionsForBackground() {
+        sshTabsToResume = sshTabs.filter { tab in
+            guard let session = tab.sshSession else { return false }
+            switch session.state {
+            case .closed, .failed: return false
+            default: break
+            }
+            session.close()
+            return true
+        }
+    }
+
+    /// Back on screen: the tabs closed for the background log in again, «Новая сессия» in their status line.
+    func resumeSSHSessions() {
+        for tab in sshTabsToResume where tab.sshSession != nil {
+            tab.isNewSSHSession = true
+            tab.sshTerminal?.connect()
+        }
+        sshTabsToResume = []
     }
 
     var store: MobileStore {
