@@ -18,11 +18,14 @@ struct SSHStoreCheck {
         let store = SSHHostStore(fileURL: hostsFile, secrets: secrets)
         var changes = 0
         store.onLocalChange = { changes += 1 }
+        var saved: [UUID] = []
+        store.onSaved = { saved.append($0) }
         let host = SSHHost(name: "nas", address: "192.168.1.5", username: "ilya")
         ids.append(host.id)
         let secret = SSHSecret(password: "pw1")
         try! store.save(host, secret: secret)
         precondition(changes == 1)
+        precondition(saved == [host.id], "save reports the saved host")
         let other = SSHHost(name: "a-first", address: "x", username: "u")
         ids.append(other.id)
         try! store.save(other, secret: SSHSecret())
@@ -71,6 +74,7 @@ struct SSHStoreCheck {
         let broken = SSHHostStore(fileURL: nil, secrets: SSHSecretStore(service: "app.unibrowser.ssh.check", failsWrites: true))
         var brokenChanges = 0
         broken.onLocalChange = { brokenChanges += 1 }
+        broken.onSaved = { _ in brokenChanges += 1 }
         let h = SSHHost(address: "z", username: "u")
         precondition((try? broken.save(h, secret: SSHSecret(password: "x"))) == nil, "save throws")
         precondition(broken.all.isEmpty && brokenChanges == 0, "failed save changes nothing")

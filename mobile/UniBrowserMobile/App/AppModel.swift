@@ -48,6 +48,10 @@ final class AppModel {
         sshHosts.onRemoved = { [weak self] ids in
             for tab in self?.sshTabs ?? [] where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
         }
+        // An edited server: tabs not connected to it log in afresh with what was saved (a shell already in use stays).
+        sshHosts.onSaved = { [weak self] id in
+            for tab in self?.sshTabs ?? [] where tab.url?.sshHostID == id && tab.sshSession?.state != .connected { tab.sleep() }
+        }
         // Like via-Mac pages that failed before the link was up (commit 0bdfaeb): log in again once it is.
         relay.onLinkEstablished = { [weak self] in
             for tab in self?.sshTabs ?? [] where tab.sshSession?.state == .failed(SSHSession.noMacLinkMessage) {
@@ -70,14 +74,15 @@ final class AppModel {
 
     /// iOS drops the app's sockets in the background (no background modes): close the sessions now.
     func closeSSHSessionsForBackground() {
-        sshTabsToResume = sshTabs.filter { tab in
-            guard let session = tab.sshSession else { return false }
+        sshTabsToResume = []
+        for tab in sshTabs {
+            guard let session = tab.sshSession else { continue }
             switch session.state {
-            case .closed, .failed: return false
+            case .closed, .failed: continue
             default: break
             }
             session.close()
-            return true
+            sshTabsToResume.append(tab)
         }
     }
 

@@ -14,6 +14,9 @@ final class SSHHostStore {
     @ObservationIgnored var onLocalChange: (() -> Void)?
     /// Ids of hosts that just stopped being live (deleted here or by a merge); open tabs on them must close.
     @ObservationIgnored var onRemoved: (([UUID]) -> Void)?
+    /// A host just saved by the user: tabs on it that aren't connected must drop their session, which still
+    /// holds the old address, secret and route, so the next login uses the saved ones.
+    @ObservationIgnored var onSaved: ((UUID) -> Void)?
 
     /// `fileURL` nil keeps the hosts in memory only.
     init(fileURL: URL?, secrets: SSHSecretStore) {
@@ -49,6 +52,7 @@ final class SSHHostStore {
             all.append(host)
         }
         changed()
+        onSaved?(host.id)
     }
 
     func delete(_ id: UUID) {

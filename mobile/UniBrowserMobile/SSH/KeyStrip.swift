@@ -18,6 +18,8 @@ final class KeyStripHost: UIInputView {
     private static let keysHeight: CGFloat = 44
     private static let suggestionsHeight: CGFloat = 38
     private weak var terminal: SSHTerminalView?
+    /// Kept so its SwiftUI view stays driven; the view alone doesn't hold its controller.
+    private var host: UIHostingController<KeyStrip>?
 
     init(terminal: SSHTerminalView) {
         self.terminal = terminal
@@ -26,11 +28,12 @@ final class KeyStripHost: UIInputView {
             guard let terminal else { return }
             UIDevice.current.playInputClick()
             switch key {
-            case .escape: terminal.send([0x1B])
-            case .tab: terminal.send([0x09])
+            case .escape: terminal.sendKey([0x1B])
+            case .tab: terminal.sendKey([0x09])
             case .control: terminal.toggleControl()
             case .arrow(let arrow): terminal.sendArrow(arrow)
-            case .text(let text): terminal.send(txt: text)
+            // As typed, so a sticky Ctrl applies to it (Ctrl-/ …) and is then used up.
+            case .text(let text): terminal.insertText(text)
             case .suggestion(let suggestion): terminal.accept(suggestion)
             case .hideKeyboard: _ = terminal.resignFirstResponder()
             }
@@ -39,6 +42,7 @@ final class KeyStripHost: UIInputView {
         host.view.frame = bounds
         host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(host.view)
+        self.host = host
         autoresizingMask = .flexibleWidth
         fit()
     }

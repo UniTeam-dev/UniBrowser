@@ -71,6 +71,8 @@ struct BrowserScreen: View {
                     store: store,
                     mode: model.mode,
                     canSendToMac: model.relay.pairedMac != nil,
+                    // A tab on a deleted server has nothing to reconnect to.
+                    canReload: store.selectedTab?.url?.sshHostID.map { model.sshHosts.host($0) != nil } ?? true,
                     onAddress: { openAddress(newTab: false) },
                     onNewTab: {
                         if let url = HomePage.url { store.newTab(url: url) } else { openAddress(newTab: true) }
@@ -273,6 +275,7 @@ private struct BottomBar: View {
     let store: MobileStore
     let mode: BrowsingMode
     let canSendToMac: Bool
+    let canReload: Bool
     let onAddress: () -> Void
     let onNewTab: () -> Void
     let onSwipeSpace: (Int) -> Void
@@ -325,6 +328,7 @@ private struct BottomBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(!canReload)
                 .accessibilityLabel(tab.isSSH ? "Переподключиться" : tab.isLoading ? "Остановить" : "Обновить")
             }
             }

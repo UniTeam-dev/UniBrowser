@@ -251,30 +251,10 @@ struct SSHHostForm: View {
     }
 
     private func save() {
-        let address = address.trimmingCharacters(in: .whitespaces)
-        let username = username.trimmingCharacters(in: .whitespaces)
-        guard !address.isEmpty else { return error = "Укажите адрес сервера." }
-        guard let port = Int(port.trimmingCharacters(in: .whitespaces)), (1...65535).contains(port) else {
-            return error = "Порт — число от 1 до 65535."
-        }
-        guard !username.isEmpty else { return error = "Укажите пользователя." }
-
-        var secret = SSHSecret()
-        if auth == .password {
-            secret.password = password
-        } else if keepsStoredKey {
-            secret.privateKey = stored.privateKey
-            secret.passphrase = stored.passphrase
-        } else {
-            let pem = SSHKeys.normalized(key)
-            guard !pem.isEmpty else { return error = "Вставьте или импортируйте приватный ключ." }
-            do { _ = try SSHKeys.parse(pem, passphrase: passphrase) } catch { return self.error = error.localizedDescription }
-            secret.privateKey = pem
-            if SSHKeys.isEncrypted(pem) { secret.passphrase = passphrase }
-        }
-        let host = SSHHost(id: original?.id ?? UUID(), name: name.trimmingCharacters(in: .whitespaces), address: address,
-                           port: port, username: username, auth: auth, viaMac: viaMac)
+        let draft = SSHHostDraft(name: name, address: address, port: port, username: username, auth: auth, viaMac: viaMac,
+                                 password: password, key: key, passphrase: passphrase, storedKey: keepsStoredKey ? stored : nil)
         do {
+            let (host, secret) = try draft.build(id: original?.id ?? UUID())
             try model.sshHosts.save(host, secret: secret)
             dismiss()
         } catch {

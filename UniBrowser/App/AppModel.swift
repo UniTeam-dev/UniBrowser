@@ -86,6 +86,10 @@ final class AppModel {
             guard let store = self?.store else { return }
             for tab in store.tabs.values where tab.url?.sshHostID.map(ids.contains) == true { tab.sleep() }
         }
+        sshHosts.onSaved = { [weak self] id in
+            guard let store = self?.store else { return }
+            for tab in store.tabs.values where tab.url?.sshHostID == id && tab.sshSession?.state != .connected { tab.sleep() }
+        }
         store.environment.onPeek = { [weak self] url in self?.openPeek(url) }
         guard !isPrivate else { return } // a private window keeps no history and isn't mirrored
         history.pruneForRetentionSetting()

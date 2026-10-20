@@ -29,7 +29,8 @@ final class SSHTerminalView: TerminalView {
 
     required init?(coder: NSCoder) { nil }
 
-    /// Logs in (again) at the terminal's current size; does nothing while connecting or connected.
+    /// Logs in (again) at the terminal's current size and starts the input line afresh.
+    /// The session itself ignores it while connecting or connected.
     func connect() {
         guard let session else { return }
         switch session.state {
@@ -60,18 +61,26 @@ final class SSHTerminalView: TerminalView {
 
     @objc private func controlReset() { strip.isControl = false }
 
+    /// Esc, Tab: sent as they are. A sticky Ctrl is used up by them too, like by a typed key,
+    /// rather than staying armed for the next letter.
+    func sendKey(_ bytes: [UInt8]) {
+        send(bytes)
+        controlModifier = false
+    }
+
     func sendArrow(_ arrow: KeyStripModel.Arrow) {
         let app = getTerminal().applicationCursor
         switch arrow {
-        case .up: send(app ? EscapeSequences.moveUpApp : EscapeSequences.moveUpNormal)
-        case .down: send(app ? EscapeSequences.moveDownApp : EscapeSequences.moveDownNormal)
-        case .left: send(app ? EscapeSequences.moveLeftApp : EscapeSequences.moveLeftNormal)
-        case .right: send(app ? EscapeSequences.moveRightApp : EscapeSequences.moveRightNormal)
+        case .up: sendKey(app ? EscapeSequences.moveUpApp : EscapeSequences.moveUpNormal)
+        case .down: sendKey(app ? EscapeSequences.moveDownApp : EscapeSequences.moveDownNormal)
+        case .left: sendKey(app ? EscapeSequences.moveLeftApp : EscapeSequences.moveLeftNormal)
+        case .right: sendKey(app ? EscapeSequences.moveRightApp : EscapeSequences.moveRightNormal)
         }
     }
 
     /// Tap on a suggestion: its missing suffix goes to the shell as keystrokes.
     func accept(_ suggestion: Suggestion) {
+        controlModifier = false
         session?.send(Array(suggestion.insert.utf8))
         line.accepted(suggestion.insert)
         refreshSuggestions()
