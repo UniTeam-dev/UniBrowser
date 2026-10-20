@@ -333,10 +333,25 @@ final class ViaMacHost {
                 await engine?.send(.session(store.currentSnapshot()), to: deviceID)
                 return
             }
-            store.applyMirror(session)
-            lastMirrored = session
-            // Other paired phones follow too.
-            await engine?.broadcast(.session(session), except: deviceID)
+            // The phone may not have seen the Mac's latest changes yet (they were in flight,
+            // or it sent this before applying the answer to hello), so its session is merged
+            // against the last one both sides shared rather than replacing the Mac's.
+            guard let base = lastMirrored else {
+                await engine?.send(.session(store.currentSnapshot()), to: deviceID)
+                return
+            }
+            var result = SessionSnapshot.merged(store.currentSnapshot(), session, base: base)
+            let phoneMissedSomething = !result.hasSameContent(as: session)
+            if phoneMissedSomething {
+                result.modifiedAt = max(.now, time.addingTimeInterval(0.001))
+                result.deviceID = BrowserStore.deviceID
+            } else {
+                result = session
+            }
+            store.applyMirror(result)
+            lastMirrored = result
+            // Other paired phones follow too, and the sender gets back what it was missing.
+            await engine?.broadcast(.session(result), except: phoneMissedSomething ? nil : deviceID)
         case .savePassword(let credential):
             try? await passwords?.save(Credential(host: credential.host, username: credential.username, password: credential.password))
             await sendPasswordsIfChanged()

@@ -79,6 +79,9 @@ final class MacRelay {
     @ObservationIgnored private var channel: SyncChannel?
     /// The last session both sides agreed on; the base of the next merge.
     @ObservationIgnored private var base: SessionSnapshot?
+    /// Between hello and the Mac's merged answer the phone's session may lack what the
+    /// Mac changed meanwhile; sending it then would overwrite those changes.
+    @ObservationIgnored private var awaitingMergeAnswer = false
     @ObservationIgnored private var lastMirrored: SessionSnapshot?
     @ObservationIgnored private var historyPump: Task<Void, Never>?
     @ObservationIgnored private var proxyChange: Task<Void, Never>?
@@ -354,6 +357,7 @@ final class MacRelay {
         do {
             let channel = try await client.openSync()
             self.channel = channel
+            awaitingMergeAnswer = true
             try await channel.write(.hello(session: store.currentSnapshot(), base: base, savedPasswords: passwords.pending,
                                            bookmarks: store.bookmarks.all, sshHosts: sshHosts.synced(), knownHosts: knownHosts.all))
             isSyncing = true
@@ -377,6 +381,7 @@ final class MacRelay {
         case .session(let session):
             // The answer to hello is the Mac's merge of both sides and always applies.
             guard let store else { return }
+            if isMergeAnswer { awaitingMergeAnswer = false }
             store.applyMirror(session, force: isMergeAnswer)
             if store.lastModified == session.modifiedAt {
                 lastMirrored = session
@@ -443,7 +448,7 @@ final class MacRelay {
     /// Every save in the via-Mac mode goes to the Mac while connected; offline
     /// changes wait for the merge on the next connection.
     private func mirror(_ snapshot: SessionSnapshot) {
-        guard channel != nil else { return }
+        guard channel != nil, !awaitingMergeAnswer else { return }
         if let lastMirrored, lastMirrored.hasSameContent(as: snapshot) { return }
         lastMirrored = snapshot
         setBase(snapshot)

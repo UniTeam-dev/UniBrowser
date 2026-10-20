@@ -99,6 +99,18 @@ enum MergeCheck {
         check("(h) separateLogins travels through merge and the wire",
               space(h, work.id)?.separateLogins == false && decoded.flatMap { space($0, work.id)?.separateLogins } == false)
 
+        // (i) A live update from a phone that hasn't seen the Mac's newest space yet (stale,
+        // but stamped later) must not delete that space: the Mac merges it against the
+        // last session it shared with the phones instead of replacing its own.
+        let v1 = UUID()
+        let vector = Space(name: "Vector", colorHex: "#2563C9", groups: [], looseTabIDs: [v1])
+        let shared = snapshot([main], [tab(t1, "one"), tab(t2, "two")], at: Date(timeIntervalSince1970: 100))
+        let macNow = snapshot([main, vector], [tab(t1, "one"), tab(t2, "two"), tab(v1, "vector")], at: Date(timeIntervalSince1970: 200))
+        let stalePhone = snapshot([main], [tab(t1, "one"), tab(t2, "two")], at: Date(timeIntervalSince1970: 300))
+        let i = SessionSnapshot.merged(macNow, stalePhone, base: shared)
+        check("(i) stale phone update keeps the Mac's new space and its tabs",
+              space(i, vector.id)?.looseTabIDs == [v1] && i.tabs.contains { $0.id == v1 })
+
         exit(failed ? 1 : 0)
     }
 }
