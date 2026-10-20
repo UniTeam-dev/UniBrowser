@@ -111,8 +111,10 @@ func checkSession() async {
     first.resize(cols: 100, rows: 30)
     first.send(Array("stty size\n".utf8))
     await waitForOutput({ out }, Array("30 100".utf8))
-    first.close()
-    precondition(first.state == .closed)
+    // a shell exiting with a non-zero status is a normal end, not a refused terminal
+    first.send(Array("exit 3\n".utf8))
+    await waitFor(first, "exit 3") { $0 != .connected }
+    precondition(first.state == .closed, "exit 3: \(first.state)")
 
     // a trusted key skips the prompt; key login
     let keyed = session(SSHHost(address: "127.0.0.1", port: 2222, username: "test", auth: .key), SSHSecret(privateKey: fixture("ed25519")))

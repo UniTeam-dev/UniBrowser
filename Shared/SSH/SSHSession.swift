@@ -331,27 +331,37 @@ private final class SSHConnection: @unchecked Sendable {
         return false
     }
 
-    /// Until the shell exits or the connection drops.
+    /// Until the shell exits or the connection drops. Throws only if the PTY couldn't be opened:
+    /// Citadel ends the stream with `CommandFailed` when the shell exits non-zero, which is a normal end.
     func runPTY(cols: Int, rows: Int, input: AsyncStream<PTYInput>, output: @escaping @Sendable ([UInt8]) async -> Void) async throws {
         let request = SSHChannelRequestEvent.PseudoTerminalRequest(
             wantReply: true, term: "xterm-256color", terminalCharacterWidth: cols, terminalRowHeight: rows,
             terminalPixelWidth: 0, terminalPixelHeight: 0, terminalModes: SSHTerminalModes([:]))
-        try await client.withPTY(request) { inbound, outbound in
-            // Only wraps the NIO channel, which is thread-safe.
-            nonisolated(unsafe) let writer = outbound
-            let writing = Task {
-                for await item in input {
-                    switch item {
-                    case .bytes(let bytes): try? await writer.write(ByteBuffer(bytes: bytes))
-                    case .resize(let cols, let rows): try? await writer.changeSize(cols: cols, rows: rows, pixelWidth: 0, pixelHeight: 0)
-                    }
+        var started = false
+        do {
+            try await client.withPTY(request) { inbound, outbound in
+                started = true
+                try await Self.pipe(inbound, outbound, input: input, output: output)
+            }
+        } catch where started {}
+    }
+
+    private static func pipe(_ inbound: TTYOutput, _ outbound: TTYStdinWriter, input: AsyncStream<PTYInput>,
+                             output: @escaping @Sendable ([UInt8]) async -> Void) async throws {
+        // Only wraps the NIO channel, which is thread-safe.
+        nonisolated(unsafe) let writer = outbound
+        let writing = Task {
+            for await item in input {
+                switch item {
+                case .bytes(let bytes): try? await writer.write(ByteBuffer(bytes: bytes))
+                case .resize(let cols, let rows): try? await writer.changeSize(cols: cols, rows: rows, pixelWidth: 0, pixelHeight: 0)
                 }
             }
-            defer { writing.cancel() }
-            for try await chunk in inbound {
-                switch chunk {
-                case .stdout(let buffer), .stderr(let buffer): await output(Array(buffer.readableBytesView))
-                }
+        }
+        defer { writing.cancel() }
+        for try await chunk in inbound {
+            switch chunk {
+            case .stdout(let buffer), .stderr(let buffer): await output(Array(buffer.readableBytesView))
             }
         }
     }
