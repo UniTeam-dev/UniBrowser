@@ -34,12 +34,13 @@ final class SSHHostStore {
         secrets.read(id) ?? SSHSecret()
     }
 
-    /// Adds the host or replaces the one with the same id in place.
-    func save(_ host: SSHHost, secret: SSHSecret) {
+    /// Adds the host or replaces the one with the same id in place. The secret goes to the
+    /// keychain first: if that throws, nothing is stored and nothing is announced.
+    func save(_ host: SSHHost, secret: SSHSecret) throws {
         var host = host
         host.modifiedAt = .now
         host.deleted = false
-        try? secrets.write(secret, for: host.id)
+        try secrets.write(secret, for: host.id)
         if let index = all.firstIndex(where: { $0.id == host.id }) {
             all[index] = host
         } else {
@@ -70,11 +71,21 @@ final class SSHHostStore {
         let result = SSHHostMerge.pruned(SSHHostMerge.merged(local, remote), now: .now)
         guard result != local else { return false }
         let localByID = Dictionary(local.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        for item in result where localByID[item.id] != item {
-            if item.host.deleted { secrets.delete(item.id) } else { try? secrets.write(item.secret, for: item.id) }
+        var adopted: [SyncedSSHHost] = []
+        for item in result {
+            guard localByID[item.id] != item else { adopted.append(item); continue }
+            if item.host.deleted {
+                secrets.delete(item.id)
+            } else if (try? secrets.write(item.secret, for: item.id)) == nil {
+                // Keychain refused: keep our version so host and secret stay one winner's.
+                if let mine = localByID[item.id] { adopted.append(mine) }
+                continue
+            }
+            adopted.append(item)
         }
-        for item in local where !result.contains(where: { $0.id == item.id }) { secrets.delete(item.id) }
-        all = result.map(\.host)
+        for item in local where !adopted.contains(where: { $0.id == item.id }) { secrets.delete(item.id) }
+        guard adopted != local else { return false }
+        all = adopted.map(\.host)
         save()
         return true
     }

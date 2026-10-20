@@ -21,12 +21,12 @@ struct SSHStoreCheck {
         let host = SSHHost(name: "nas", address: "192.168.1.5", username: "ilya")
         ids.append(host.id)
         let secret = SSHSecret(password: "pw1")
-        store.save(host, secret: secret)
+        try! store.save(host, secret: secret)
         precondition(changes == 1)
         let other = SSHHost(name: "a-first", address: "x", username: "u")
         ids.append(other.id)
-        store.save(other, secret: SSHSecret())
-        store.save(SSHHost(id: host.id, name: "nas2", address: "192.168.1.5", username: "ilya"), secret: secret)
+        try! store.save(other, secret: SSHSecret())
+        try! store.save(SSHHost(id: host.id, name: "nas2", address: "192.168.1.5", username: "ilya"), secret: secret)
         precondition(store.all.map(\.id) == [host.id, other.id], "save replaces in place")
         precondition(store.live.map(\.name) == ["a-first", "nas2"], "live sorted by name")
         let reloaded = SSHHostStore(fileURL: hostsFile, secrets: secrets)
@@ -50,6 +50,26 @@ struct SSHStoreCheck {
         store.delete(other.id)
         precondition(store.live.isEmpty && store.all.count == 2, "tombstones kept")
         precondition(secrets.read(host.id) == nil, "keychain emptied")
+
+        // remote-only host is appended with its secret; a remote tombstone clears the keychain
+        let fresh = SyncedSSHHost(host: SSHHost(name: "new", address: "y", username: "u"), secret: SSHSecret(password: "pw3"))
+        ids.append(fresh.id)
+        precondition(store.merge([fresh]) && store.all.contains { $0.id == fresh.id })
+        precondition(secrets.read(fresh.id)?.password == "pw3", "remote-only secret stored")
+        var gone = fresh
+        gone.host.deleted = true
+        gone.host.modifiedAt = fresh.host.modifiedAt.addingTimeInterval(10)
+        gone.secret = SSHSecret()
+        precondition(store.merge([gone]) && secrets.read(fresh.id) == nil && store.host(fresh.id) == nil, "remote tombstone")
+
+        // a failing keychain: save throws and changes nothing; merge keeps the local version
+        let broken = SSHHostStore(fileURL: nil, secrets: SSHSecretStore(service: "app.unibrowser.ssh.check", failsWrites: true))
+        var brokenChanges = 0
+        broken.onLocalChange = { brokenChanges += 1 }
+        let h = SSHHost(address: "z", username: "u")
+        precondition((try? broken.save(h, secret: SSHSecret(password: "x"))) == nil, "save throws")
+        precondition(broken.all.isEmpty && brokenChanges == 0, "failed save changes nothing")
+        precondition(broken.merge([SyncedSSHHost(host: h, secret: SSHSecret(password: "x"))]) == false && broken.all.isEmpty, "failed merge adopts nothing")
 
         // known hosts
         let knownFile = dir.appending(path: "known-hosts.json")

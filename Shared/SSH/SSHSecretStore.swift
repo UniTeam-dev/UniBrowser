@@ -5,9 +5,12 @@ import Security
 /// the JSON-encoded `SSHSecret` as its data.
 struct SSHSecretStore: Sendable {
     let service: String
+    /// Makes every `write` throw; for the store check only.
+    let failsWrites: Bool
 
-    init(service: String = "app.unibrowser.ssh") {
+    init(service: String = "app.unibrowser.ssh", failsWrites: Bool = false) {
         self.service = service
+        self.failsWrites = failsWrites
     }
 
     func read(_ id: UUID) -> SSHSecret? {
@@ -20,6 +23,7 @@ struct SSHSecretStore: Sendable {
     }
 
     func write(_ secret: SSHSecret, for id: UUID) throws {
+        if failsWrites { throw KeychainError(status: errSecInteractionNotAllowed) }
         let data = try JSONEncoder().encode(secret)
         let status = SecItemUpdate(match(id) as CFDictionary, [kSecValueData: data] as CFDictionary)
         if status == errSecSuccess { return }
