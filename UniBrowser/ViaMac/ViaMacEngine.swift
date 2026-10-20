@@ -31,7 +31,7 @@ actor ViaMacEngine {
                 preset: presetN0(),
                 bindAddr: "0.0.0.0:\(port)",
                 secretKey: secretKey,
-                alpns: [ViaMacProtocol.alpn, ViaMacProtocol.legacyAlpn],
+                alpns: [ViaMacProtocol.alpn] + ViaMacProtocol.legacyAlpns,
                 relayMode: try relay.map { try RelayMode.customFromUrls(urls: [$0]) }
             ))
         }
@@ -199,9 +199,10 @@ actor ViaMacEngine {
     /// The live mirror: hello and the merged answer, then changes both ways
     /// until the phone goes away.
     private nonisolated func serveSync(_ channel: SyncChannel, deviceID: String) async {
-        guard case .hello(let session, let base, let saved, let bookmarks)? = try? await channel.next() else { return }
+        guard case .hello(let session, let base, let saved, let bookmarks, let sshHosts, let knownHosts)? = try? await channel.next() else { return }
         await addSync(channel, deviceID: deviceID)
-        for reply in await host.hello(session: session, base: base, savedPasswords: saved, bookmarks: bookmarks, from: deviceID) {
+        for reply in await host.hello(session: session, base: base, savedPasswords: saved, bookmarks: bookmarks,
+                                      sshHosts: sshHosts, knownHosts: knownHosts, from: deviceID) {
             try? await channel.write(reply)
         }
         await host.syncStarted(deviceID)

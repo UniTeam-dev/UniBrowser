@@ -38,7 +38,7 @@ final class AppModel {
         let viaMacEnvironment = MobileWebEnvironment(mode: .viaMac, passwords: passwords, siteSettings: siteSettings)
         viaMacEnvironment.apply(proxies: MacRelay.proxyConfigurations())
         viaMac = MobileStore(mode: .viaMac, environment: viaMacEnvironment)
-        relay.attach(store: viaMac, passwords: passwords)
+        relay.attach(store: viaMac, passwords: passwords, sshHosts: sshHosts, knownHosts: knownHosts)
     }
 
     var store: MobileStore {

@@ -90,7 +90,8 @@ final class AppModel {
         guard !isPrivate else { return } // a private window keeps no history and isn't mirrored
         history.pruneForRetentionSetting()
         store.environment.history = history
-        viaMac.attach(store: store, passwords: passwords.builtIn, history: history, bookmarks: bookmarks)
+        viaMac.attach(store: store, passwords: passwords.builtIn, history: history, bookmarks: bookmarks,
+                      sshHosts: sshHosts, knownHosts: knownHosts)
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
             while !Task.isCancelled {

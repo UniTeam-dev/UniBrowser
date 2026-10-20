@@ -167,9 +167,11 @@ actor ViaMacClient {
             throw ViaMacError.timeout
         } catch {
             // A quick refusal may mean the Mac runs an older UniBrowser: it still speaks the old protocol.
-            if let old = try? await withTimeout(10, { try await endpoint.connect(addr: address, alpn: ViaMacProtocol.legacyAlpn) }) {
-                try? old.close(errorCode: 0, reason: Data("outdated".utf8))
-                throw ViaMacError.outdatedMac
+            for legacy in ViaMacProtocol.legacyAlpns {
+                if let old = try? await withTimeout(10, { try await endpoint.connect(addr: address, alpn: legacy) }) {
+                    try? old.close(errorCode: 0, reason: Data("outdated".utf8))
+                    throw ViaMacError.outdatedMac
+                }
             }
             throw error
         }

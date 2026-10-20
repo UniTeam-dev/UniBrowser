@@ -73,6 +73,8 @@ final class MacRelay {
     /// Set when the keep-alive gave up on a link that still looked open.
     @ObservationIgnored private var macStoppedAnswering = false
     @ObservationIgnored private weak var store: MobileStore?
+    @ObservationIgnored private weak var sshHosts: SSHHostStore?
+    @ObservationIgnored private weak var knownHosts: KnownHostsStore?
     @ObservationIgnored private weak var passwords: PhonePasswords?
     @ObservationIgnored private var channel: SyncChannel?
     /// The last session both sides agreed on; the base of the next merge.
@@ -99,9 +101,19 @@ final class MacRelay {
     }
 
     /// Called once from AppModel with the via-Mac mode's tabs and the phone's logins.
-    func attach(store: MobileStore, passwords: PhonePasswords) {
+    func attach(store: MobileStore, passwords: PhonePasswords, sshHosts: SSHHostStore, knownHosts: KnownHostsStore) {
         self.store = store
         self.passwords = passwords
+        self.sshHosts = sshHosts
+        self.knownHosts = knownHosts
+        sshHosts.onLocalChange = { [weak self, weak sshHosts] in
+            guard let sshHosts else { return }
+            self?.send(.sshHosts(sshHosts.synced()))
+        }
+        knownHosts.onLocalChange = { [weak self, weak knownHosts] in
+            guard let knownHosts else { return }
+            self?.send(.knownHosts(knownHosts.all))
+        }
         store.onLocalChange = { [weak self] snapshot in self?.mirror(snapshot) }
         passwords.onSave = { [weak self] credential in self?.send(.savePassword(credential)) }
         store.bookmarks.onLocalChange = { [weak self, weak store] in
@@ -335,12 +347,12 @@ final class MacRelay {
     // MARK: - Mirror
 
     private func startMirror() async {
-        guard let store, let passwords else { return }
+        guard let store, let passwords, let sshHosts, let knownHosts else { return }
         do {
             let channel = try await client.openSync()
             self.channel = channel
             try await channel.write(.hello(session: store.currentSnapshot(), base: base, savedPasswords: passwords.pending,
-                                           bookmarks: store.bookmarks.all))
+                                           bookmarks: store.bookmarks.all, sshHosts: sshHosts.synced(), knownHosts: knownHosts.all))
             isSyncing = true
             pumpHistory(channel)
             Task { [weak self] in
@@ -381,6 +393,16 @@ final class MacRelay {
             bookmarks.merge(remote)
             // The Mac is missing something the phone has: it gets the phone's list back.
             if Set(bookmarks.all) != Set(remote) { send(.bookmarks(bookmarks.all)) }
+        case .sshHosts(let remote):
+            guard let sshHosts else { return }
+            sshHosts.merge(remote)
+            // Only when the Mac would gain something, so a kept local version or a tie doesn't bounce.
+            let mine = sshHosts.synced()
+            if SSHHostMerge.merged(remote, mine) != remote { send(.sshHosts(mine)) }
+        case .knownHosts(let remote):
+            guard let knownHosts else { return }
+            knownHosts.merge(remote)
+            if KnownHostMerge.merged(remote, knownHosts.all) != remote { send(.knownHosts(knownHosts.all)) }
         case .history(let visits):
             store?.history?.merge(visits)
         case .hello, .savePassword, .sessionKeepingImages:
