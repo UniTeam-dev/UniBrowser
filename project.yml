@@ -17,6 +17,16 @@ packages:
     # QUIC tunnel with NAT traversal and relays for the iPhone link.
     url: https://github.com/n0-computer/iroh-ffi
     exactVersion: 1.1.0
+  Citadel:
+    url: https://github.com/orlandos-nl/Citadel
+    exactVersion: 0.12.1
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    exactVersion: 1.20.0
+  NIOExtras:
+    # NIOSOCKS: SSHSession (Shared/SSH) compiles into both apps.
+    url: https://github.com/apple/swift-nio-extras
+    from: 1.24.0
 targets:
   # Distributed from the website only (Developer ID + notarization), like Chrome and
   # Firefox: no App Sandbox, private WebKit API (Web Inspector) is allowed.
@@ -31,6 +41,10 @@ targets:
     dependencies:
       - package: BigInt
       - package: IrohLib
+      - package: Citadel
+      - package: SwiftTerm
+      - package: NIOExtras
+        product: NIOSOCKS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.unibrowser.UniBrowser
