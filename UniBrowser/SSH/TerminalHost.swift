@@ -11,6 +11,7 @@ final class SSHTerminalView: TerminalView {
     /// The server's command list is asked for once per connection, at its first output.
     private var commandsRequested = false
     private var update: Task<Void, Never>?
+    /// Made once, hidden when not in use.
     private var popup: NSHostingView<SuggestionPopup>?
     private var shown: [Suggestion] = []
     private var selected = 0
@@ -26,6 +27,7 @@ final class SSHTerminalView: TerminalView {
         configureNativeColors()
         terminalDelegate = self
         session.onOutput = { [weak self] bytes in self?.received(bytes) }
+        NotificationCenter.default.addObserver(self, selector: #selector(defaultsChanged), name: UserDefaults.didChangeNotification, object: nil)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -40,8 +42,18 @@ final class SSHTerminalView: TerminalView {
         let terminal = getTerminal()
         line = CommandLineModel()
         commandsRequested = false
+        update?.cancel()
         hideSuggestions()
         Task { await session.connect(cols: terminal.cols, rows: terminal.rows) }
+    }
+
+    /// Tab put to sleep, closed or switched away: drop the list and its key monitor.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            update?.cancel()
+            hideSuggestions()
+        }
     }
 
     /// The system text colors follow light/dark; SwiftTerm copies them once, so copy again.
@@ -83,7 +95,20 @@ final class SSHTerminalView: TerminalView {
         let showed = line.showsSuggestions
         line.isAlternateScreen = getTerminal().isCurrentBufferAlternate
         line.echoed(bytes)
-        if line.showsSuggestions != showed { refreshSuggestions() }
+        if line.showsSuggestions != showed { refreshSuggestions() } else if !shown.isEmpty { placePopup() }
+    }
+
+    private var suggestionsEnabled: Bool {
+        UserDefaults.standard.object(forKey: SettingsKeys.terminalSuggestions) as? Bool ?? true
+    }
+
+    /// «Подсказки в терминале» turned off hides the list at once. Posted on whichever thread changed a default.
+    @objc nonisolated private func defaultsChanged() {
+        Task { @MainActor [weak self] in
+            guard let self, !suggestionsEnabled else { return }
+            update?.cancel()
+            hideSuggestions()
+        }
     }
 
     private func typed(_ bytes: [UInt8]) {
@@ -95,7 +120,7 @@ final class SSHTerminalView: TerminalView {
     private func refreshSuggestions() {
         update?.cancel()
         hideSuggestions()
-        guard line.showsSuggestions, UserDefaults.standard.object(forKey: SettingsKeys.terminalSuggestions) as? Bool ?? true else { return }
+        guard line.showsSuggestions, suggestionsEnabled else { return }
         let model = line, cwd = session?.cwd
         update = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(80))
@@ -109,12 +134,25 @@ final class SSHTerminalView: TerminalView {
         guard !list.isEmpty else { return hideSuggestions() }
         shown = list
         selected = 0
-        let view = popup ?? NSHostingView(rootView: popupContent)
-        view.rootView = popupContent
-        if popup == nil {
+        if let popup {
+            popup.rootView = popupContent
+            popup.isHidden = false
+        } else {
+            let view = NSHostingView(rootView: popupContent)
             popup = view
             addSubview(view)
         }
+        placePopup()
+        if keyMonitor == nil {
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                self?.handleKey(event) ?? event
+            }
+        }
+    }
+
+    /// At the cursor; again after each output while shown, since the cursor may have moved.
+    private func placePopup() {
+        guard let view = popup else { return }
         // SwiftTerm's cell: its `cellDimension` is internal, so measured the way it does.
         let cellHeight = ceil(CTFontGetAscent(font) + CTFontGetDescent(font) + CTFontGetLeading(font))
         let cellWidth = font.advancement(forGlyph: font.glyph(withName: "W")).width
@@ -126,11 +164,6 @@ final class SSHTerminalView: TerminalView {
         if y < 0 { y = bounds.height - cellHeight * CGFloat(cursor.y) }
         let x = max(0, min(CGFloat(cursor.x) * cellWidth, bounds.width - size.width))
         view.frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
-        if keyMonitor == nil {
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                self?.handleKey(event) ?? event
-            }
-        }
     }
 
     private var popupContent: SuggestionPopup {
@@ -138,8 +171,7 @@ final class SSHTerminalView: TerminalView {
     }
 
     private func hideSuggestions() {
-        popup?.removeFromSuperview()
-        popup = nil
+        popup?.isHidden = true
         shown = []
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
@@ -166,6 +198,7 @@ final class SSHTerminalView: TerminalView {
         default: return event
         }
         popup?.rootView = popupContent
+        placePopup()
         return nil
     }
 }

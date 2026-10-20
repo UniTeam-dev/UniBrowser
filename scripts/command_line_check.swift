@@ -3,6 +3,7 @@
 import Foundation
 
 @main
+@MainActor
 enum CommandLineCheck {
     static func bytes(_ s: String) -> [UInt8] { Array(s.utf8) }
 
@@ -13,7 +14,7 @@ enum CommandLineCheck {
         return saved
     }
 
-    static func main() {
+    static func main() async {
         // printable input, echo, words
         var m = CommandLineModel()
         precondition(m.line == "" && !m.showsSuggestions, "starts empty, nothing to suggest")
@@ -125,12 +126,15 @@ enum CommandLineCheck {
         precondition(CommandLineModel.unquoted("a\\") == nil, "trailing backslash")
         precondition(CommandLineModel.escaped("апка/", quote: "\"") == "апка/", "plain in quotes")
         precondition(CommandLineModel.escaped("a b$\"", quote: "\"") == "a b\\$\\\"", "double-quote specials")
+        precondition(CommandLineModel.escaped("a!b", quote: "\"") == "a\"\\!\"b", "! closes the double quote")
+        precondition(CommandLineModel.unquoted("\"x a\"\\!\"b")! == ("x a!b", "\""), "and reads back with the quote open")
         precondition(CommandLineModel.escaped("апка 1/", quote: nil) == "апка\\ 1/", "space escaped")
         precondition(CommandLineModel.escaped("x'y", quote: "'") == "x'\\''y", "single quote in single quotes")
 
         // history: newest first, unique, leading space ignored, capped, saved to disk
         let file = FileManager.default.temporaryDirectory.appending(path: "command_line_check-\(UUID().uuidString)/h.json")
         let history = CommandHistory(fileURL: file)
+        await history.loaded()
         for line in ["git status", "ls", "git log", "git status", "gist"] { history.add(line) }
         history.add(" git secret")
         precondition(history.matches(prefix: "gi", limit: 8) == ["gist", "git status", "git log"], "matches: \(history.matches(prefix: "gi", limit: 8))")
@@ -140,7 +144,18 @@ enum CommandLineCheck {
         precondition(history.matches(prefix: "cmd ", limit: 1) == ["cmd 2099"], "newest kept")
         history.flush()
         let reloaded = CommandHistory(fileURL: file)
+        precondition(reloaded.matches(prefix: "", limit: 1) == [], "empty until read")
+        await reloaded.loaded()
         precondition(reloaded.matches(prefix: "", limit: 5000) == history.matches(prefix: "", limit: 5000), "persisted")
+        // a line added before the file is read joins the saved ones as the newest, and the save keeps both
+        let early = CommandHistory(fileURL: file)
+        early.add("cmd 5")
+        await early.loaded()
+        precondition(early.matches(prefix: "cmd ", limit: 2) == ["cmd 5", "cmd 2099"] && early.matches(prefix: "", limit: 5000).count == 2000, "merged")
+        early.flush()
+        let again = CommandHistory(fileURL: file)
+        await again.loaded()
+        precondition(again.matches(prefix: "", limit: 5000) == early.matches(prefix: "", limit: 5000), "merge saved")
         precondition(CommandHistory(fileURL: nil).matches(prefix: "", limit: 8) == [], "in memory")
         try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
 

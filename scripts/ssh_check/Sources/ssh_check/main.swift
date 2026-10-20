@@ -484,7 +484,7 @@ func checkSuggestions() async {
         if session.state != .connected { try? await Task.sleep(for: .seconds(1)) }
     }
     precondition(session.state == .connected, "login: \(session.state)")
-    _ = try! await session.exec("touch ~/.bashrc; rm -rf ~/'тест под сказки'; mkdir ~/'тест под сказки'")
+    _ = try! await session.exec("touch ~/.bashrc ~/pasta; rm -rf ~/'тест под сказки'; mkdir ~/'тест под сказки'")
 
     let cache = FileManager.default.temporaryDirectory.appending(path: "ssh_check-\(UUID().uuidString)/commands.json")
     let history = CommandHistory(fileURL: nil)
@@ -525,6 +525,24 @@ func checkSuggestions() async {
     precondition(s.contains(Suggestion(kind: .path, display: "etc/", insert: "c/")), "/et: \(s)")
     s = await suggest("cat ~/.bas")
     precondition(s.contains(Suggestion(kind: .path, display: ".bashrc", insert: "hrc")), "~/.bas: \(s)")
+    // relative paths wait for the shell's own cwd (OSC 7): after a `cd` the login folder would be wrong
+    var shellOut: [UInt8] = []
+    session.onOutput = { shellOut += $0 }
+    session.send(Array("cd /etc; echo cd-done\r".utf8))
+    await waitForOutput({ shellOut }, Array("cd-done\r\n".utf8))
+    precondition(!session.cwdFromShell && session.cwd == "/config", "no OSC 7 yet")
+    s = await suggest("ls pas")
+    precondition(s.isEmpty, "relative without OSC 7 (the login folder's `pasta` would be wrong): \(s)")
+    s = await suggest("ls /etc/pas")
+    precondition(s.contains { $0.display == "passwd" }, "absolute still works: \(s)")
+    session.setCwd("/etc") // what the terminal does with OSC 7
+    s = await suggest("ls pas")
+    precondition(s.contains(Suggestion(kind: .path, display: "passwd", insert: "swd")), "relative after OSC 7: \(s)")
+    shellOut = []
+    session.send(Array("cd; echo back-home\r".utf8))
+    await waitForOutput({ shellOut }, Array("back-home\r\n".utf8))
+    await waitForOutput({ shellOut }, Array("$ ".utf8)) // the prompt, before the echo checks below take over the output
+    session.setCwd("/config")
     s = await suggest("ls \"тест п")
     precondition(s.contains(Suggestion(kind: .path, display: "тест под сказки/", insert: "од сказки/")), "quoted: \(s)")
     s = await suggest("ls тест\\ п")
@@ -562,7 +580,7 @@ func checkSuggestions() async {
     for _ in 0..<100 where !m.showsSuggestions { try? await Task.sleep(for: .milliseconds(50)) }
     precondition(m.showsSuggestions, "echo back after the prompt: \(String(decoding: out, as: UTF8.self))")
 
-    _ = try! await session.exec("rm -rf ~/'тест под сказки'")
+    _ = try! await session.exec("rm -rf ~/'тест под сказки' ~/pasta")
     try? FileManager.default.removeItem(at: cache.deletingLastPathComponent())
     session.close()
     print("suggestions: ok")

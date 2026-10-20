@@ -65,7 +65,7 @@ final class SuggestionEngine {
     }
 
     /// At most 8, without repeats: history lines that extend the whole line, then commands for the first
-    /// word or paths for later ones. `cwd` resolves relative paths.
+    /// word or paths for later ones. `cwd` resolves relative paths, only once the shell reported it (OSC 7).
     func suggestions(for model: CommandLineModel, cwd: String?) async -> [Suggestion] {
         guard model.showsSuggestions, let line = model.line else { return [] }
         var result = history.matches(prefix: line, limit: Self.limit + 1)
@@ -95,7 +95,7 @@ final class SuggestionEngine {
         } else if folder.hasPrefix("~/") {
             guard let home = await homeDirectory() else { return [] }
             dir = home + folder.dropFirst()
-        } else if let cwd, !value.hasPrefix("~") {
+        } else if let cwd, session.cwdFromShell, !value.hasPrefix("~") {
             dir = cwd.hasSuffix("/") ? cwd + folder : cwd + "/" + folder
         } else {
             return []

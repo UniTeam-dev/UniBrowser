@@ -20,6 +20,9 @@ final class SSHSession {
 
     private(set) var state: State = .idle
     private(set) var cwd: String?
+    /// The shell reported `cwd` itself (OSC 7) on this connection. Before that `cwd` is only the login folder,
+    /// and a `cd` would go unnoticed.
+    private(set) var cwdFromShell = false
     /// Raw terminal output; may split UTF-8 sequences between calls.
     @ObservationIgnored var onOutput: (([UInt8]) -> Void)?
 
@@ -72,7 +75,10 @@ final class SSHSession {
     }
 
     /// From OSC 7.
-    func setCwd(_ path: String) { cwd = path }
+    func setCwd(_ path: String) {
+        cwd = path
+        cwdFromShell = true
+    }
 
     /// Runs a command on its own channel; stdout only. Throws on a non-zero exit.
     func exec(_ command: String) async throws -> String {
@@ -116,6 +122,7 @@ final class SSHSession {
         guard mine == attempt, state == .connecting else { connection.close(); return }
         self.connection = connection
         self.cwd = cwd
+        cwdFromShell = false
         startPTY(connection)
         startKeepalive(connection)
         state = .connected

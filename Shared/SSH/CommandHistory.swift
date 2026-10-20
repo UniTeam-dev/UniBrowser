@@ -1,19 +1,36 @@
 import Foundation
 
 /// One host's command lines on this device (`ssh-history/<host-id>.json`), never synced: newest last,
-/// unique, at most 2000. Saved in the background after each `add`.
+/// unique, at most 2000. Read and saved in the background; empty until read.
+@MainActor
 final class CommandHistory {
-    static let limit = 2000
+    nonisolated static let limit = 2000
 
-    private var lines: [String]
+    private var lines: [String] = []
     private let fileURL: URL?
+    /// Until the file is read; saving waits for it, so lines added meanwhile don't replace the file's.
+    private var loading: Task<Void, Never>?
     private static let writes = DispatchQueue(label: "app.unibrowser.ssh-history", qos: .utility)
 
     /// `fileURL` nil keeps the history in memory only.
     init(fileURL: URL?) {
         self.fileURL = fileURL
-        lines = fileURL.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+        guard let fileURL else { return }
+        loading = Task { [weak self] in
+            let saved = await Task.detached(priority: .utility) {
+                (try? Data(contentsOf: fileURL)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+            }.value
+            guard let self else { return }
+            let added = lines
+            lines = saved.filter { !added.contains($0) } + added
+            if lines.count > Self.limit { lines.removeFirst(lines.count - Self.limit) }
+            loading = nil
+            if !added.isEmpty { save() }
+        }
     }
+
+    /// For checks.
+    func loaded() async { await loading?.value }
 
     /// Lines starting with a space, and blank ones, are not kept.
     func add(_ line: String) {
@@ -21,6 +38,10 @@ final class CommandHistory {
         lines.removeAll { $0 == line }
         lines.append(line)
         if lines.count > Self.limit { lines.removeFirst(lines.count - Self.limit) }
+        if loading == nil { save() }
+    }
+
+    private func save() {
         guard let fileURL, let data = try? JSONEncoder().encode(lines) else { return }
         Self.writes.async {
             try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

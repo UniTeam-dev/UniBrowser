@@ -179,7 +179,8 @@ struct CommandLineModel {
     static func escaped(_ text: String, quote: Character?) -> String {
         switch quote {
         case "'": return text.replacingOccurrences(of: "'", with: "'\\''")
-        case "\"": return String(text.flatMap { "$`\"\\".contains($0) ? ["\\", $0] : [$0] })
+        // `!` would expand history in bash even inside double quotes, and `\!` keeps its backslash there: close, escape, reopen.
+        case "\"": return String(text.flatMap { $0 == "!" ? Array("\"\\!\"") : "$`\"\\".contains($0) ? ["\\", $0] : [$0] })
         default: return String(text.flatMap { " \t\"'\\$`&|;<>()*?[]!#{}".contains($0) ? ["\\", $0] : [$0] })
         }
     }
