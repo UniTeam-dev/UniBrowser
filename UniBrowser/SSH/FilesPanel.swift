@@ -271,9 +271,10 @@ private struct TransfersStrip: View {
             // Inline rather than an alert: it stays answerable whatever else is on screen.
             if let clash = queue.clash {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("«\(clash.name)» уже есть в этой папке").font(.caption.weight(.medium)).lineLimit(2)
+                    Text(clash.isFolder ? "Папка «\(clash.name)» уже есть здесь" : "«\(clash.name)» уже есть в этой папке")
+                        .font(.caption.weight(.medium)).lineLimit(2)
                     HStack {
-                        Button("Заменить") { queue.answer(.replace) }
+                        if !clash.isFolder { Button("Заменить") { queue.answer(.replace) } }
                         Button("Оставить оба") { queue.answer(.keepBoth) }
                         Button("Пропустить") { queue.answer(.skip) }
                     }

@@ -360,6 +360,24 @@ func checkSFTP() async {
     for _ in 0..<100 where queue.items.contains(where: { $0.id == answered }) { try? await Task.sleep(for: .milliseconds(50)) }
     precondition(!queue.items.contains { $0.id == answered } && queue.clash == nil, "skip answer")
 
+    // «Заменить» onto a folder of the same name is refused; the folder and its contents stay, nothing is left behind
+    _ = try! await session.exec("mkdir '\(home)/папка x' && echo 1 > '\(home)/папка x/внутри'")
+    let sameName = local.appending(path: "папка x")
+    try! Data("файл".utf8).write(to: sameName)
+    queue.upload(sameName, to: home) { _ in .replace }
+    let refused = await waitTransfer(queue, queue.items.last!.id) { if case .failed = $0 { true } else { false } }
+    precondition(refused.state == .failed("«папка x» — папка; заменить её файлом нельзя"), "folder replace: \(refused.state)")
+    let folderAfter = try! await session.exec("ls '\(home)/папка x'; ls -a \(home) | grep -c unibrowser || true")
+    precondition(folderAfter == "внутри\n0\n", "folder after refused replace: \(folderAfter)")
+    // the clash says it is a folder, so the panel offers only «Оставить оба» / «Пропустить»
+    queue.upload(sameName, to: home) { await queue.ask($0) }
+    let folderClash = queue.items.last!.id
+    for _ in 0..<100 where queue.clash == nil { try? await Task.sleep(for: .milliseconds(50)) }
+    precondition(queue.clash?.isFolder == true, "clash isFolder")
+    queue.answer(.skip)
+    for _ in 0..<100 where queue.items.contains(where: { $0.id == folderClash }) { try? await Task.sleep(for: .milliseconds(50)) }
+    _ = try! await session.exec("rm -rf '\(home)/папка x'")
+
     // the connection drops after the original was moved aside: the error names the copies; the next save recovers
     var dropMessage = ""
     do {

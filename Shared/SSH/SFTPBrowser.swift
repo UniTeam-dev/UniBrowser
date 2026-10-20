@@ -247,17 +247,43 @@ enum RemoteSwap {
 
     static func write(_ path: String, client: SFTPClient, _ fill: @escaping @Sendable (SFTPFile) async throws -> Void) async throws {
         let target = (try? await client.getRealPath(atPath: path)) ?? path
-        let temp = target + ".unibrowser-tmp", old = target + ".unibrowser-old"
+        let old = target + ".unibrowser-old"
+        let name = { (path: String) in (path as NSString).lastPathComponent }
         func exists(_ path: String) async -> Bool { (try? await client.getAttributes(at: path)) != nil }
 
         var original = try? await client.getAttributes(at: target)
+        /// Why a leftover `.old` stayed; told only if the write then fails.
+        var note: String?
         if original == nil, await exists(old) {
             // An earlier save dropped after moving the original away: put it back first.
             try await client.rename(at: old, to: target)
             original = try await client.getAttributes(at: target)
-        } else if original != nil, await exists(old) {
-            try await client.remove(at: old) // left by an earlier save that finished; the target is whole
+        } else if original != nil, let leftover = try? await client.getAttributes(at: old) {
+            // Left by an earlier save that finished; the target is whole. Only a plain file is ever removed.
+            if isRegularFile(leftover) {
+                do { try await client.remove(at: old) } catch { note = "не удалось убрать \(name(old)): \(SFTPBrowser.message(for: error))" }
+            } else {
+                note = "\(name(old)) — не обычный файл, оставлен как есть"
+            }
         }
+        if let original, !isRegularFile(original) {
+            let kind = (original.permissions ?? 0) & 0o170000 == 0o040000 ? "папка; заменить её файлом нельзя" : "не обычный файл"
+            throw SFTPFailure("«\(name(target))» — \(kind)")
+        }
+        do {
+            try await swap(target, original: original, client: client, fill)
+        } catch let error where note != nil {
+            throw SFTPFailure("\(SFTPBrowser.message(for: error)); \(note!)")
+        }
+    }
+
+    private static func isRegularFile(_ attributes: SFTPFileAttributes) -> Bool {
+        (attributes.permissions ?? 0) & 0o170000 == 0o100000
+    }
+
+    private static func swap(_ target: String, original: SFTPFileAttributes?, client: SFTPClient,
+                             _ fill: @escaping @Sendable (SFTPFile) async throws -> Void) async throws {
+        let temp = target + ".unibrowser-tmp", old = target + ".unibrowser-old"
         var attributes = SFTPFileAttributes.none
         let mode = original?.permissions.map { $0 & 0o7777 }
         if let mode {
@@ -329,10 +355,13 @@ final class TransferQueue {
     /// A name clash waiting for «Заменить / Оставить оба / Пропустить». Any panel of the tab shows it.
     final class Clash: Identifiable {
         let name: String
+        /// The existing one is a folder: only «Оставить оба» and «Пропустить» make sense.
+        let isFolder: Bool
         private var continuation: CheckedContinuation<ConflictChoice, Never>?
 
-        init(name: String, continuation: CheckedContinuation<ConflictChoice, Never>) {
+        init(name: String, isFolder: Bool, continuation: CheckedContinuation<ConflictChoice, Never>) {
             self.name = name
+            self.isFolder = isFolder
             self.continuation = continuation
         }
 
@@ -364,6 +393,8 @@ final class TransferQueue {
     @ObservationIgnored private var running: (id: UUID, task: Task<Void, Never>)?
     @ObservationIgnored private var samples: [(at: Date, bytes: UInt64)] = []
     @ObservationIgnored private var shown = Date.distantPast
+    /// What `resolve` found under the clashing name, for the `ask` it is about to cause.
+    @ObservationIgnored private var clashIsFolder = false
 
     init(session: SSHSession) { self.session = session }
 
@@ -380,7 +411,7 @@ final class TransferQueue {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 clash?.answer(.skip)
-                clash = Clash(name: name, continuation: continuation)
+                clash = Clash(name: name, isFolder: clashIsFolder, continuation: continuation)
             }
         } onCancel: {
             Task { @MainActor [weak self] in self?.answer(.skip) }
@@ -506,7 +537,8 @@ final class TransferQueue {
     private func resolve(_ name: String, in dir: String, client: SFTPClient, conflict: (String) async -> ConflictChoice) async throws -> String? {
         func exists(_ path: String) async -> Bool { (try? await client.getAttributes(at: path)) != nil }
         let target = SFTPBrowser.join(dir, name)
-        guard await exists(target) else { return target }
+        guard let existing = try? await client.getAttributes(at: target) else { return target }
+        clashIsFolder = (existing.permissions ?? 0) & 0o170000 == 0o040000
         switch await conflict(name) {
         case .replace: return target
         case .skip: return nil
