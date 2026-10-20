@@ -12,6 +12,7 @@ struct PasswordsManagerView: View {
     @State private var editing: Credential?
     @State private var isAdding = false
     @State private var section = PasswordsSection.passwords
+    @State private var sshEditing: SSHHost?
 
     private enum PasswordsSection { case passwords, ssh }
 
@@ -33,7 +34,7 @@ struct PasswordsManagerView: View {
             .padding(.bottom, 12)
             Divider()
             if section == .ssh {
-                SSHHostsView()
+                SSHHostsView(editing: $sshEditing)
             } else {
                 passwordsContent
             }
@@ -41,7 +42,11 @@ struct PasswordsManagerView: View {
         .frame(width: 560, height: 520)
         .onAppear {
             reload()
-            if model.passwordsSSHHost != nil { section = .ssh }
+            if let id = model.passwordsSSHHost {
+                model.passwordsSSHHost = nil
+                section = .ssh
+                sshEditing = model.sshHosts.host(id)
+            }
         }
         .sheet(item: $editing) { credential in
             PasswordEditor(original: credential, store: store) { reload() }

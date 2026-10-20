@@ -151,7 +151,7 @@ final class BrowserTab: Identifiable {
 
     /// ⌘R: reloads the page; an SSH tab that isn't connected logs in again.
     func reload() {
-        if let sshTerminal { sshTerminal.connect() } else { webView?.reload() }
+        if let sshTerminal { sshTerminal.connect() } else if !isSSH { webView?.reload() } // an SSH tab without a terminal has no host: nothing to do
     }
 
     /// Frees the web view or closes the SSH session. The tab keeps its URL and title and reloads on the next wake.
@@ -214,8 +214,9 @@ final class BrowserTab: Identifiable {
     var isAwayFromPin: Bool { pinnedURL != nil && pinnedURL != url }
 
     func load(_ url: URL) {
+        guard !url.isSSHScheme else { return } // SSH tabs are made by `BrowserStore.openSSH` only
         // Between a page and an SSH host the tab sleeps; the view for the new kind wakes it.
-        if isSSH || url.sshHostID != nil { sleep() }
+        if isSSH { sleep() }
         self.url = url
         webView?.load(URLRequest(url: url))
     }

@@ -365,7 +365,7 @@ struct CommandPalette: View {
         case .bookmark, .visit:
             if let url = url(of: items[index]) { store.openSplit(with: store.newTab(url: url, select: false).id) }
         case .sshHost(let host):
-            store.openSplit(with: store.newTab(url: .ssh(host.id), select: false).id)
+            store.openSplit(with: store.openSSH(host.id, select: false).id)
         case .group, .command:
             return
         }

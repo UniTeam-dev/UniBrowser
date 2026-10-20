@@ -22,7 +22,7 @@ extension TabWebController: WKNavigationDelegate {
         preferences: WKWebpagePreferences
     ) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
         // Web content must never open an SSH tab.
-        if action.request.url?.scheme == "unibrowser-ssh" { return (.cancel, preferences) }
+        if action.request.url?.isSSHScheme == true { return (.cancel, preferences) }
         // Option+click peeks at the link without making a tab.
         if action.modifierFlags.contains(.option), action.navigationType == .linkActivated,
            let url = action.request.url, let onPeek = environment?.onPeek {
@@ -153,7 +153,7 @@ extension TabWebController: WKUIDelegate {
         for action: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = action.request.url, url.scheme != "unibrowser-ssh" {
+        if let url = action.request.url, !url.isSSHScheme {
             environment?.store?.newTab(url: url)
         }
         return nil

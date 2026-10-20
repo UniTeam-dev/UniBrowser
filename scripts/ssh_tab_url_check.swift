@@ -15,6 +15,8 @@ enum SSHTabURLCheck {
         precondition(URL(string: "https://\(id.uuidString)")!.sshHostID == nil, "id under another scheme is not SSH")
         precondition(URL(string: "unibrowser-ssh://not-a-uuid")!.sshHostID == nil, "malformed host")
         precondition(URL(string: "unibrowser-ssh:")!.sshHostID == nil, "no host")
+        precondition(URL(string: "unibrowser-ssh://anything")!.isSSHScheme && URL(string: "UNIBROWSER-SSH://x")!.isSSHScheme, "scheme test is case-insensitive")
+        precondition(!URL(string: "https://x")!.isSSHScheme, "web URL is not the SSH scheme")
         print("ssh tab url: ok")
     }
 }

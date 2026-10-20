@@ -5,7 +5,7 @@ struct SSHHostsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppModel.self) private var model
 
-    @State private var editing: SSHHost?
+    @Binding var editing: SSHHost?
     @State private var isAdding = false
     @State private var deleting: SSHHost?
 
@@ -48,12 +48,6 @@ struct SSHHostsView: View {
             }
             .padding(16)
         }
-        .onAppear {
-            if let id = model.passwordsSSHHost {
-                model.passwordsSSHHost = nil
-                editing = model.sshHosts.host(id)
-            }
-        }
         .sheet(item: $editing) { SSHHostForm(original: $0) }
         .sheet(isPresented: $isAdding) { SSHHostForm(original: nil) }
         .confirmationDialog("Удалить сервер «\(deleting?.displayName ?? "")»?",
@@ -62,8 +56,8 @@ struct SSHHostsView: View {
             Button("Удалить", role: .destructive) { model.sshHosts.delete(host.id) }
             Button("Отмена", role: .cancel) {}
         } message: { host in
-            let count = model.store.tabs.values.filter { $0.url?.sshHostID == host.id }.count
-            Text(count == 0 ? "Пароль или ключ тоже будут удалены." : "Открытых вкладок: \(count) — они закроются. Пароль или ключ тоже будут удалены.")
+            let count = model.store.tabs.values.filter { $0.url?.sshHostID == host.id && $0.sshSession != nil }.count
+            Text((count == 0 ? "" : "Открытые вкладки этого сервера будут отключены: \(count). ") + "Пароль или ключ тоже будут удалены.")
         }
     }
 

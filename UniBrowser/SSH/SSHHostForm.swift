@@ -16,6 +16,13 @@ struct SSHHostForm: View {
     @State private var key = ""
     @State private var passphrase = ""
     @State private var error: String?
+    /// The stored secret of the edited host. Its private key is never shown; untouched, it is kept as it is.
+    @State private var stored = SSHSecret()
+    @State private var isReplacingKey = false
+    @State private var isGenerateConfirmVisible = false
+    @State private var deviceName = "mac"
+
+    private var keepsStoredKey: Bool { stored.privateKey != nil && !isReplacingKey }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -51,29 +58,62 @@ struct SSHHostForm: View {
         .padding(20)
         .frame(width: 440)
         .onAppear(perform: load)
+        .task {
+            // The host name can need a lookup; keep it off the main thread.
+            let name = await Task.detached { ProcessInfo.processInfo.hostName }.value
+            deviceName = name.hasSuffix(".local") ? String(name.dropLast(6)) : (name.isEmpty ? "mac" : name)
+        }
+        .confirmationDialog("Заменить ключ?", isPresented: $isGenerateConfirmVisible) {
+            Button("Сгенерировать новый", role: .destructive, action: generate)
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Текущий ключ будет заменён новым. Если он нужен, сначала скопируйте публичный ключ или сохраните приватный.")
+        }
     }
 
     private var keyArea: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextEditor(text: $key)
-                .font(.system(size: 11, design: .monospaced))
-                .frame(height: 90)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.primary.opacity(0.15)))
-                .accessibilityLabel("Приватный ключ")
-            if key.isEmpty {
-                Text("Вставьте приватный ключ (OpenSSH) или импортируйте файл.")
-                    .font(.system(size: 11)).foregroundStyle(Palette.secondaryText)
+            if keepsStoredKey {
+                HStack {
+                    Image(systemName: "key.fill").foregroundStyle(Palette.secondaryText)
+                    Text("Ключ сохранён")
+                    Spacer()
+                    Button("Заменить…") { isReplacingKey = true; key = ""; passphrase = "" }
+                }
+            } else {
+                TextEditor(text: $key)
+                    .font(.system(size: 11, design: .monospaced))
+                    .frame(height: 90)
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.primary.opacity(0.15)))
+                    .accessibilityLabel("Приватный ключ")
+                if key.isEmpty {
+                    Text("Вставьте приватный ключ (OpenSSH) или импортируйте файл.")
+                        .font(.system(size: 11)).foregroundStyle(Palette.secondaryText)
+                }
             }
             HStack {
                 Button("Импортировать…", action: importKey)
-                Button("Сгенерировать ed25519") { key = SSHKeys.generateEd25519(); passphrase = ""; error = nil }
+                Button("Сгенерировать ed25519") {
+                    if keepsStoredKey || !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        isGenerateConfirmVisible = true
+                    } else {
+                        generate()
+                    }
+                }
                 Button("Скопировать публичный ключ", action: copyPublicKey)
-                    .disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!keepsStoredKey && key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            if SSHKeys.isEncrypted(Self.normalized(key)) {
+            if !keepsStoredKey, SSHKeys.isEncrypted(Self.normalized(key)) {
                 SecureField("Парольная фраза ключа", text: $passphrase)
             }
         }
+    }
+
+    private func generate() {
+        isReplacingKey = true
+        key = SSHKeys.generateEd25519()
+        passphrase = ""
+        error = nil
     }
 
     /// Trimmed, LF line endings, one trailing newline: what the parser and the server-side tools expect.
@@ -92,10 +132,8 @@ struct SSHHostForm: View {
         username = original.username
         auth = original.auth
         viaMac = original.viaMac
-        let secret = model.sshHosts.secret(for: original.id)
-        password = secret.password ?? ""
-        key = secret.privateKey ?? ""
-        passphrase = secret.passphrase ?? ""
+        stored = model.sshHosts.secret(for: original.id)
+        password = stored.password ?? ""
     }
 
     private func importKey() {
@@ -108,15 +146,18 @@ struct SSHHostForm: View {
             error = "Не удалось прочитать файл как текст."
             return
         }
+        isReplacingKey = true
         key = Self.normalized(text)
         passphrase = ""
         error = nil
     }
 
     private func copyPublicKey() {
-        let comment = "unibrowser@" + (Host.current().localizedName ?? "mac")
+        let comment = "unibrowser@" + deviceName
         do {
-            let line = try SSHKeys.publicKeyLine(Self.normalized(key), passphrase: passphrase, comment: comment)
+            let line = keepsStoredKey
+                ? try SSHKeys.publicKeyLine(stored.privateKey ?? "", passphrase: stored.passphrase, comment: comment)
+                : try SSHKeys.publicKeyLine(Self.normalized(key), passphrase: passphrase, comment: comment)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(line, forType: .string)
             error = nil
@@ -138,11 +179,16 @@ struct SSHHostForm: View {
         if auth == .password {
             secret.password = password
         } else {
-            let pem = Self.normalized(key)
-            guard !pem.isEmpty else { return error = "Вставьте или импортируйте приватный ключ." }
-            do { _ = try SSHKeys.parse(pem, passphrase: passphrase) } catch { return self.error = error.localizedDescription }
-            secret.privateKey = pem
-            if SSHKeys.isEncrypted(pem) { secret.passphrase = passphrase }
+            if keepsStoredKey {
+                secret.privateKey = stored.privateKey
+                secret.passphrase = stored.passphrase
+            } else {
+                let pem = Self.normalized(key)
+                guard !pem.isEmpty else { return error = "Вставьте или импортируйте приватный ключ." }
+                do { _ = try SSHKeys.parse(pem, passphrase: passphrase) } catch { return self.error = error.localizedDescription }
+                secret.privateKey = pem
+                if SSHKeys.isEncrypted(pem) { secret.passphrase = passphrase }
+            }
         }
         let host = SSHHost(id: original?.id ?? UUID(), name: name.trimmingCharacters(in: .whitespaces), address: address,
                            port: port, username: username, auth: auth, viaMac: viaMac)
