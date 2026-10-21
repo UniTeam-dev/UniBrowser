@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import UIKit
 import WebKit
 
 /// Things every tab of one mode shares: its cookies and site data, the saved
@@ -161,6 +162,43 @@ extension MobileTabController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         Downloads.policy(for: response)
+    }
+
+    /// HTTP auth (nginx auth_basic and the like): WebKit has no dialog of its own.
+    func webView(
+        _ webView: WKWebView,
+        respondTo challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        let space = challenge.protectionSpace
+        guard space.isHTTPAuth, var presenter = webView.window?.rootViewController else {
+            return (.performDefaultHandling, nil)
+        }
+        while let next = presenter.presentedViewController { presenter = next }
+        let alert = UIAlertController(title: "Вход", message: space.loginPrompt(failed: challenge.previousFailureCount > 0),
+                                      preferredStyle: .alert)
+        alert.addTextField {
+            $0.placeholder = "Имя пользователя"
+            $0.text = challenge.proposedCredential?.user
+            $0.textContentType = .username
+            $0.autocapitalizationType = .none
+            $0.autocorrectionType = .no
+        }
+        alert.addTextField {
+            $0.placeholder = "Пароль"
+            $0.isSecureTextEntry = true
+            $0.textContentType = .password
+        }
+        return await withCheckedContinuation { done in
+            // Cancel shows the server's 401 page, as other browsers do.
+            alert.addAction(UIAlertAction(title: "Отмена", style: .cancel) { _ in done.resume(returning: (.rejectProtectionSpace, nil)) })
+            alert.addAction(UIAlertAction(title: "Войти", style: .default) { [weak alert] _ in
+                let fields = alert?.textFields ?? []
+                let credential = URLCredential(user: (fields.first?.text ?? "").trimmingCharacters(in: .whitespaces), password: fields.last?.text ?? "",
+                                               persistence: .forSession)
+                done.resume(returning: (.useCredential, credential))
+            })
+            presenter.present(alert, animated: true)
+        }
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

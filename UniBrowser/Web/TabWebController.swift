@@ -57,6 +57,37 @@ extension TabWebController: WKNavigationDelegate {
         return Downloads.policy(for: response)
     }
 
+    /// HTTP auth (nginx auth_basic and the like): WebKit has no dialog of its own.
+    func webView(
+        _ webView: WKWebView,
+        respondTo challenge: URLAuthenticationChallenge
+    ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        let space = challenge.protectionSpace
+        guard space.isHTTPAuth else { return (.performDefaultHandling, nil) }
+        let alert = NSAlert()
+        alert.messageText = "Вход"
+        alert.informativeText = space.loginPrompt(failed: challenge.previousFailureCount > 0)
+        let user = NSTextField(string: challenge.proposedCredential?.user ?? "")
+        user.placeholderString = "Имя пользователя"
+        let password = NSSecureTextField(string: "")
+        password.placeholderString = "Пароль"
+        let fields = NSStackView(views: [user, password])
+        fields.orientation = .vertical
+        fields.frame = NSRect(x: 0, y: 0, width: 260, height: 52)
+        alert.accessoryView = fields
+        alert.addButton(withTitle: "Войти")
+        alert.addButton(withTitle: "Отмена")
+        alert.window.initialFirstResponder = user.stringValue.isEmpty ? user : password
+        let response = if let window = webView.window {
+            await alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+        // Cancel shows the server's 401 page, as other browsers do.
+        guard response == .alertFirstButtonReturn else { return (.rejectProtectionSpace, nil) }
+        return (.useCredential, URLCredential(user: user.stringValue.trimmingCharacters(in: .whitespaces), password: password.stringValue, persistence: .forSession))
+    }
+
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         Downloads.shared.track(download)
     }
