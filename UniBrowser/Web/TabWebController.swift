@@ -151,6 +151,13 @@ extension TabWebController {
         Task { decisionHandler(await ask([.notifications], host: host)) }
     }
 
+    /// WKUIDelegatePrivate: «Загрузить изображение» / «Загрузить файл по ссылке» in the context menu.
+    /// Without it WebKit starts the download and nobody takes it.
+    @objc(_webView:contextMenuDidCreateDownload:)
+    func contextMenuDidCreateDownload(_ webView: WKWebView, download: WKDownload) {
+        Downloads.shared.track(download)
+    }
+
     /// The stored decision, or the tab's prompt bar.
     func ask(_ permissions: [SitePermission], host: String) async -> Bool {
         guard let tab, let environment else { return false }
