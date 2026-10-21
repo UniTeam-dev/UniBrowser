@@ -71,9 +71,12 @@ extension TabWebController: WKNavigationDelegate {
         user.placeholderString = "Имя пользователя"
         let password = NSSecureTextField(string: "")
         password.placeholderString = "Пароль"
-        let fields = NSStackView(views: [user, password])
-        fields.orientation = .vertical
-        fields.frame = NSRect(x: 0, y: 0, width: 260, height: 52)
+        // Fixed frames: a stack view shrinks empty fields to a few points.
+        user.frame = NSRect(x: 0, y: 30, width: 260, height: 22)
+        password.frame = NSRect(x: 0, y: 0, width: 260, height: 22)
+        let fields = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 52))
+        fields.addSubview(user)
+        fields.addSubview(password)
         alert.accessoryView = fields
         alert.addButton(withTitle: "Войти")
         alert.addButton(withTitle: "Отмена")
